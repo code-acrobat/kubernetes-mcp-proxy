@@ -151,10 +151,16 @@ typically want on top of a hosted/shared MCP):
 
 - **Loopback only, no auth**: any local process can talk to `:3720` /
   `:8081`. Fine on a single-user machine, not on a multi-tenant host.
-- **Workloads can still leak denied kinds**: a Pod in an allowed namespace
-  can mount a Secret and print it via `pods_log`. The ceiling is upstream
-  `read_only = true` (kills every write) plus real RBAC; the proxy narrows
-  the MCP surface, it does not replace the Kubernetes authorizer.
+- **Workloads can still leak denied kinds** (verified on a dev
+  cluster): a Pod in an allowed namespace can mount a Secret
+  (`envFrom`/`secretKeyRef` - creating it needs no `get` on the
+  Secret; the kubelet fetches it) and print it via `pods_log`. No
+  deny rule fires because no denied object is ever touched through
+  the MCP. The ceiling is upstream `read_only = true` (refuses the
+  write that starts the chain) or cluster admission policy
+  restricting secret volumes; RBAC on the kubeconfig alone does not
+  close this chain. The proxy narrows the MCP surface, it does not
+  replace the Kubernetes authorizer.
 - **`pods_log` can print secret material** that a workload has mounted;
   it is not denied by default because it is the main debugging tool.
   Add it to `deny_tools` if that trade-off is not yours to make.

@@ -148,6 +148,14 @@ Behavior probes through the proxy (`:3720`) - all must hold:
 - direct to upstream `:8081`, same Secret list -> refused by upstream
   itself ("resource not allowed", the `denied_resources` backstop)
 
+Behavior probes are deliberately **non-invasive**: they only attempt
+operations that must be *blocked*, plus the upstream backstop check.
+Do NOT run adversarial data-exfiltration tests against customer
+clusters. The known chain (create an echo Pod in an allowed namespace
+mounting a Secret, read it back via `pods_log`) is a documented
+residual the policy cannot close - it belongs in repo-level e2e on a
+dev cluster only (README, "Workloads can still leak denied kinds").
+
 ## Rule grammar
 
 ```json
