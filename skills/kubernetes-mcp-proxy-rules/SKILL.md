@@ -50,11 +50,21 @@ SecretProviderClass, Role, RoleBinding, ClusterRole, ClusterRoleBinding;
    `kubectl get crd -o name | grep -iE 'secret|vault|sealed|extern'`
    and offer to add matches to `deny_kinds` (and the upstream TOML
    `[[denied_resources]]` mirror - keep them in sync).
-3. **Strictness** - add `pods_log` to `deny_tools`? conditional rules
-   via `deny_calls`? The shipped TOML runs `read_only = true` (safe
-   default: writes refused at the source); does the user need writes?
-   Commenting it out re-opens the workload ferret chain (README,
-   "Workloads can still leak denied kinds").
+3. **Logs** - may `pods_log` stay allowed for this deployment?
+   Application logs routinely print connection strings, tokens, stack
+   traces and PII, and everything returned through the MCP ends up at
+   your LLM provider. Keep `pods_log` only if the provider may see
+   whatever these apps print - assume they will. Anything you would
+   not hand to that provider deliberately does not belong in logs:
+   add `pods_log` to `deny_tools` (humans keep `kubectl logs`
+   directly). A **no-training agreement with the provider is a must**,
+   not a nice-to-have, before any real workload's logs or data flow
+   through an MCP to an LLM.
+4. **Strictness** - conditional rules via `deny_calls`? The shipped
+   TOML runs `read_only = true` (safe default: writes refused at the
+   source); does the user need writes? Commenting it out re-opens the
+   workload ferret chain (README, "Workloads can still leak denied
+   kinds").
 
 Custom rules are fine: start from the shipped defaults and edit with
 the user using the grammar at the bottom.
