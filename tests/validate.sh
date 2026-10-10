@@ -38,6 +38,10 @@ grep -Eq '^port = "8081"$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: port
 grep -Eq '^bind_address = "127.0.0.1"$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: bind_address must be loopback"
 grep -Eq '^list_output = "yaml"$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: list_output must be yaml (response filter depends on it)"
 
+# upstream backstop: the TOML must deny the core secret kinds itself
+grep -Eq '^kind = "Secret"$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: denied_resources must include Secret"
+grep -Eq '^kind = "ConfigMap"$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: denied_resources must include ConfigMap"
+
 # default rules sanity: the core policy knobs must exist and be non-empty
 jq -e '(.deny_kinds | length) > 0 and (.allowed_namespaces | length) > 0
   and (.deny_tools | index("configuration_view") != null)

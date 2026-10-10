@@ -57,7 +57,7 @@ removed; a single out-of-scope object (`resources_get`) becomes the same
 | `kubernetes-mcp-proxy.mjs` | the proxy (node >= 18, zero deps) |
 | `kubernetes-mcp-proxy.sh` | `up` / `down` / `status` for both processes |
 | `kubernetes-mcp-proxy.rules.json` | the policy (see below) |
-| `kubernetes-mcp-server.toml` | hardened upstream config (loopback, `list_output = "yaml"`) |
+| `kubernetes-mcp-server.toml` | hardened upstream config (loopback, `list_output = "yaml"`, `denied_resources` backstop for the deny_kinds kinds) |
 | `tools-list@v0.0.67.json` | normalized snapshot of upstream tools (drift marker) |
 | `tests/validate.sh` | offline: syntax + rules-vs-snapshot |
 | `tests/e2e.sh` | offline: full policy behavior against a stub upstream |
@@ -131,6 +131,17 @@ To widen the namespace scope:
 "allowed_namespaces": ["default", "dev"]
 ```
 
+To make it stricter than the defaults (defense-in-depth lines enterprises
+typically want on top of a hosted/shared MCP):
+
+- add `pods_log` (and any other tool you distrust) to `deny_tools`
+- `deny_calls` for conditional rules, e.g.
+  `{"tool": "pods_delete", "if": {"namespace": "default"}, "reason": "deletes are platform-team only"}`
+- narrow `allowed_namespaces` to one namespace (`[]` denies every namespace)
+- set `read_only = true` in the upstream TOML: every write is refused
+  at the source, policy or not (`disable_destructive = true` keeps
+  reads but blocks delete/update)
+
 ## Security notes
 
 - **Loopback only, no auth**: any local process can talk to `:3720` /
@@ -147,6 +158,10 @@ To widen the namespace scope:
   carries only its kind and name (values never appear), and the event's
   own namespace is still filtered. Name-only disclosure; add `events_list`
   to `deny_tools` if even that is too much.
+- **Deny rules fail open on drift** (argument level): if upstream renames
+  a tool, a `deny_tools` entry silently stops matching. Run
+  `tests/validate.sh` (rules vs committed `tools-list@<version>.json`)
+  after any upstream bump, and refresh the snapshot (procedure in AGENTS.md).
 - **Version drift locks the proxy**: the rules `schema` tag is checked
   against the live upstream version at startup. A Renovate-style bump of
   the binary without refreshing rules+snapshot locks every `tools/call`
@@ -154,6 +169,15 @@ To widen the namespace scope:
   tools. Argument-level drift inside a matching tag still fails open -
   `tests/validate.sh` (rules vs committed snapshot) is the offline
   check; the full process is in Upgrading below.
+- **The deny list is explicit, not exhaustive**: `deny_kinds` covers the
+  common secret-holding kinds; a CRD this project has never seen passes
+  until someone adds it. Mitigations: the same kinds are ALSO denied by
+  the upstream itself (`[[denied_resources]]` in the shipped TOML), so
+  direct `:8081` access or a proxy bug still cannot read them; the
+  schema lock refuses new upstream toolsets until reviewed. Namespace
+  scoping exists only in the proxy - the ceiling for that is RBAC on
+  the kubeconfig the upstream uses. Trial on a dev cluster first (next
+  section).
 - **Create-manifest sniffing is line-based for YAML** (top-level `kind`,
   `namespace` inside the first `metadata:` block). Exotic styles (flow
   mappings) are refused rather than forwarded unverified. JSON manifests
@@ -221,3 +245,28 @@ re-synchronized. Process:
    confirm the log line `schema ok: upstream matches rules ...`, then
    smoke-test: a denied kind (Secret list -> -32000) and a filtered
    list (`pods_list {}` -> only allowed namespaces).
+
+## Recommended rollout: dev cluster first
+
+The defaults are a reviewed best guess, not a proof of completeness -
+new CRDs that store secrets appear faster than deny lists. Trial before
+production:
+
+1. Point the upstream's kubeconfig at a **dev cluster**, keep the
+   default rules, `kubernetes-mcp-proxy.sh up`.
+2. Probe the surface through the proxy (`:3720`):
+   - `resources_list` with `kind: Secret` -> `-32000`
+   - `pods_list {}` -> only allowed namespaces in the YAML
+   - `resources_create_or_update` with a Secret manifest -> `-32000`
+   - direct `:8081` Secret list -> refused by upstream
+     (`denied_resources` backstop)
+3. Watch `/tmp/opencode/kubernetes-mcp-proxy.log` while developers use
+   it for a few days - every blocked call and filtered response is
+   logged; review what was *not* blocked.
+4. Inventory the secret-holding CRDs actually installed (SealedSecrets,
+   ExternalSecrets, Vault providers, ...) and extend `deny_kinds` +
+   the TOML `denied_resources` mirror before widening
+   `allowed_namespaces` or enabling more toolsets.
+5. Move to the production kubeconfig only after that; keep clients on
+   `:3720` and put namespace-scoped RBAC on the upstream's kubeconfig -
+   that is the one boundary the proxy cannot provide itself.

@@ -11,3 +11,64 @@ list_output = "yaml"
 # upstream default (disabled in HTTP mode); the proxy denies it as well.
 # read_only = true   # upstream kill switch: blocks every write, policy or not
 # stateless = false  # keep default: stateful sessions via Mcp-Session-Id
+
+# Upstream backstop: the same secret-holding kinds the proxy denies are
+# denied HERE too (GVK-exact), so direct :8081 access or a proxy hole
+# still cannot read them. Keep in sync with deny_kinds (AGENTS.md).
+# Note: upstream cannot scope namespaces - that ceiling is RBAC on the
+# kubeconfig this process uses.
+
+[[denied_resources]]
+group = ""
+version = "v1"
+kind = "Secret"
+
+[[denied_resources]]
+group = ""
+version = "v1"
+kind = "ConfigMap"
+
+[[denied_resources]]
+group = "rbac.authorization.k8s.io"
+version = "v1"
+kind = "Role"
+
+[[denied_resources]]
+group = "rbac.authorization.k8s.io"
+version = "v1"
+kind = "RoleBinding"
+
+[[denied_resources]]
+group = "rbac.authorization.k8s.io"
+version = "v1"
+kind = "ClusterRole"
+
+[[denied_resources]]
+group = "rbac.authorization.k8s.io"
+version = "v1"
+kind = "ClusterRoleBinding"
+
+[[denied_resources]]
+group = "bitnami.com"
+version = "v1alpha1"
+kind = "SealedSecret"
+
+[[denied_resources]]
+group = "external-secrets.io"
+version = "v1beta1"
+kind = "ExternalSecret"
+
+[[denied_resources]]
+group = "external-secrets.io"
+version = "v1beta1"
+kind = "SecretStore"
+
+[[denied_resources]]
+group = "external-secrets.io"
+version = "v1beta1"
+kind = "ClusterSecretStore"
+
+[[denied_resources]]
+group = "secrets-store.csi.x-k8s.io"
+version = "v1"
+kind = "SecretProviderClass"

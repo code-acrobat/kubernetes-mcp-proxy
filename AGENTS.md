@@ -54,6 +54,14 @@ repo (same request-flow philosophy, same rules grammar roots).
   go-sdk localhost protection stays on (never set
   `disable_localhost_protection`). The proxy strips the client Host header
   so node re-sets it to the loopback target.
+- **Upstream `denied_resources` mirrors `deny_kinds`.** The shipped TOML
+  denies the same kinds at the upstream (GVK-exact), so direct `:8081`
+  access or a proxy hole still cannot read them. Upstream control is
+  coarse by design (tool/GVK level); argument- and response-level
+  policy exists only in the proxy. When `deny_kinds` changes, update
+  the TOML to match (`validate.sh` pins Secret and ConfigMap).
+  Namespace scoping has no upstream equivalent - its ceiling is RBAC
+  on the kubeconfig.
 - **`list_output = "yaml"` is mandatory** upstream: the text filter parses
   `- `-prefixed YAML item blocks; the table parser is only a fallback for
   `pods_top`/`nodes_top` (their output is tabwriter regardless). Do not
