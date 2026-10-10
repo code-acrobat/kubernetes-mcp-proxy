@@ -59,6 +59,7 @@ removed; a single out-of-scope object (`resources_get`) becomes the same
 | `tools-list@v0.0.67.json` | normalized snapshot of upstream tools (drift marker) |
 | `tests/validate.sh` | offline: syntax + rules-vs-snapshot |
 | `tests/e2e.sh` | offline: full policy behavior against a stub upstream |
+| `skills/kubernetes-mcp-proxy-rules/` | AI-assisted install/refresh workflow (skill: live-schema check + validated install) |
 
 ## Install
 
