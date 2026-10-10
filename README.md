@@ -149,6 +149,9 @@ typically want on top of a hosted/shared MCP):
 
 ## Security notes
 
+Evidence for these claims (blocked paths + the one verified residual,
+with repro commands): [ADVERSARIAL-TESTS.md](ADVERSARIAL-TESTS.md).
+
 - **Loopback only, no auth**: any local process can talk to `:3720` /
   `:8081`. Fine on a single-user machine, not on a multi-tenant host.
 - **Workloads can still leak denied kinds** (verified on a dev

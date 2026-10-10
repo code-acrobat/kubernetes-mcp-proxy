@@ -138,7 +138,10 @@ maintainer steps on every upstream bump:
   This is the one runnable check - keep it green.
 - Live: point at a real cluster (minikube) and check pods_list /
   namespaces_list / events_list only show allowed namespaces, Secret
-  list/get/exec/configuration_view are -32000.
+  list/get/exec/configuration_view are -32000. Adversarial results
+  (blocked-path matrix + the verified workload ferret chain) are
+  recorded in `ADVERSARIAL-TESTS.md`; re-run the ferret section on dev
+  clusters only.
 
 ## Layout / repo rules
 
