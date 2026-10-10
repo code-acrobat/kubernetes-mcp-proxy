@@ -8,7 +8,7 @@ DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 : "${KMP_TOML:=$DIR/kubernetes-mcp-server.toml}"
 : "${KMP_BIN:=kubernetes-mcp-server}"
 : "${KMP_PROXY:=node $DIR/kubernetes-mcp-proxy.mjs}"
-: "${KMP_LOG:=/tmp/opencode/kubernetes-mcp-proxy.log}"
+: "${KMP_LOG:=/tmp/kubernetes-mcp-proxy.log}"
 
 upstream_pid() { pgrep -f "^(.*/)?kubernetes-mcp-server --config " 2>/dev/null || true; }
 proxy_pid() { pgrep -f "^(.*/)?node [^ ]*/kubernetes-mcp-proxy\.mjs$" 2>/dev/null || true; }

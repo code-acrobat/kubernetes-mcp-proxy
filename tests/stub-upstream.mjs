@@ -7,7 +7,7 @@
 import http from "node:http";
 import { appendFileSync } from "node:fs";
 
-const LOG = process.env.STUB_LOG || "/tmp/opencode/stub-calls.log";
+const LOG = process.env.STUB_LOG || "/tmp/kubernetes-mcp-proxy-stub.log";
 const SID = "STUBSESSION0123456789ABCDEF";
 const VERSION = process.env.STUB_VERSION || "v0.0.67";
 

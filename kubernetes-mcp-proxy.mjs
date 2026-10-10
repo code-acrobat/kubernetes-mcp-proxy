@@ -14,7 +14,7 @@ const PORT = Number(process.env.PORT || 3720);
 const TARGET = new URL(process.env.UPSTREAM_URL || "http://127.0.0.1:8081/mcp");
 const RULES_PATH =
   process.env.RULES || join(import.meta.dirname, "kubernetes-mcp-proxy.rules.json");
-const LOG = process.env.LOG || "/tmp/opencode/kubernetes-mcp-proxy.log";
+const LOG = process.env.LOG || "/tmp/kubernetes-mcp-proxy.log";
 // ponytail: fixed buffer cap; stream-through if this ever becomes a problem.
 const MAX_BODY = 16 * 1024 * 1024;
 

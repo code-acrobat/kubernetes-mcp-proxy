@@ -1,17 +1,15 @@
 # AGENTS.md - development notes
 
 User-facing docs: README.md. This file is the invariant record for anyone
-changing the code. Reference architecture: the sibling `github-mcp-proxy`
-repo (same request-flow philosophy, same rules grammar roots).
+changing the code.
 
 ## Invariants (do not break without discussion)
 
 - **Request flow** (buffer body -> browser guard -> parse -> policy ->
   forward): Origin or Sec-Fetch-Site header => 403. Unparseable body =>
   pass through. Batch with any tools/call => whole batch blocked (fail
-  closed; note this differs from github-mcp-proxy which passes batches -
-  the go-sdk rejects batches on modern protocols anyway, and a smuggled
-  tools/call inside a batch must not slip past policy). Non-tools/call
+  closed; the go-sdk rejects batches on modern protocols anyway, and a
+  smuggled tools/call inside a batch must not slip past policy). Non-tools/call
   methods (initialize, notifications, tools/list) => forwarded untouched.
 - **Blocked call => local 200 JSON-RPC error** `code:-32000,
   message:"blocked by kubernetes-mcp-proxy policy: <reason>"`, never
@@ -66,8 +64,7 @@ repo (same request-flow philosophy, same rules grammar roots).
   `- `-prefixed YAML item blocks; the table parser is only a fallback for
   `pods_top`/`nodes_top` (their output is tabwriter regardless). Do not
   "optimize" the upstream to table output.
-- **No new runtime dependencies.** Node stdlib only (same house rule as
-  github-mcp-proxy).
+- **No new runtime dependencies.** Node stdlib only.
 
 ## Rules grammar
 
@@ -81,8 +78,9 @@ repo (same request-flow philosophy, same rules grammar roots).
 }
 ```
 
-`deny_calls` is github-mcp-proxy compatible (subset match on `if`).
-Extensions: `deny_kinds` (kind argument + create-manifest sniff +
+`deny_calls`: exact tool name plus a subset match on `if` (every listed
+pair must equal the call's argument; extra arguments do not stop a
+match). Extensions: `deny_kinds` (kind argument + create-manifest sniff +
 response items) and `allowed_namespaces` (request namespace arguments +
 response items; omit for `*`, `[]` denies all).
 
@@ -145,7 +143,7 @@ maintainer steps on every upstream bump:
 ## Layout / repo rules
 
 - MIT, own git repo, no remote unless the owner adds one.
-- Log default: `/tmp/opencode/kubernetes-mcp-proxy.log`.
+- Log default: `/tmp/kubernetes-mcp-proxy.log`.
 - Ports: proxy 3720, upstream 8081 (override: PORT / UPSTREAM_URL env for
   the proxy, KMP_* env for the control script).
 - Do not run the control script's pkill patterns inside a command that

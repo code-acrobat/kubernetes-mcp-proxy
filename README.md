@@ -2,9 +2,7 @@
 
 A policy proxy in front of
 [`containers/kubernetes-mcp-server`](https://github.com/containers/kubernetes-mcp-server)
-(HTTP mode), modeled after
-[github-mcp-proxy](https://github.com/code-acrobat/github-mcp-proxy).
-It enforces a small, secure default policy:
+(HTTP mode). It enforces a small, secure default policy:
 
 - **Secret-holding kinds are invisible**: `Secret`, `ConfigMap`, and the
   usual secret-carrying CRDs (`SealedSecret`, `ExternalSecret`,
@@ -21,13 +19,13 @@ It enforces a small, secure default policy:
   (kubeconfig exposure) and `nodes_log` are denied outright.
 
 Everything runs on loopback. The proxy is not authentication - it is a
-policy gate for a single-user machine (same threat model as
-github-mcp-proxy).
+policy gate for a single-user machine: any local process can reach it,
+it filters operations, not identity.
 
 ## How it works
 
 ```
-opencode/any MCP client
+any MCP client
         |  http://127.0.0.1:3720/mcp
         v
 kubernetes-mcp-proxy  (node, zero-dep, one file)
@@ -75,7 +73,7 @@ cp kubernetes-mcp-proxy.mjs kubernetes-mcp-proxy.sh \
 ~/.local/bin/kubernetes-mcp-proxy.sh status
 ```
 
-Log: `/tmp/opencode/kubernetes-mcp-proxy.log`.
+Log: `/tmp/kubernetes-mcp-proxy.log`.
 Kill switch: `kubernetes-mcp-proxy.sh down` (or just kill the proxy - the
 upstream stays loopback-only).
 
@@ -85,8 +83,14 @@ Point your MCP client at the proxy, not at the upstream:
 { "mcp": { "kubernetes": { "type": "remote", "url": "http://127.0.0.1:3720/mcp" } } }
 ```
 
-If you run opencode inside an omac sandbox, grant the port
-(`~/.config/omac/sandbox-profiles/default.json`):
+## Sandboxing
+
+The proxy makes most sense when the MCP client itself runs sandboxed:
+grant the sandbox **only** the proxy port (`3720`) - never the upstream
+port (`8081`) and never the kubeconfig file. Then even a confused or
+compromised client cannot bypass the policy layer. Any sandbox with
+per-port network allowlists works; for example omac (oh-my-agentic-coder,
+its `network.open_port` setting), Firejail, or bubblewrap:
 
 ```json
 { "network": { "open_port": [3720] } }
@@ -121,9 +125,9 @@ If you run opencode inside an omac sandbox, grant the port
   stays on); `[]` denies every namespace.
 
 Rules are read **once at startup** - edit the file, then restart
-(`kubernetes-mcp-proxy.sh down && ... up`). A missing rules file forwards
-everything (fail open, same as github-mcp-proxy); a malformed entry is
-dropped and logged, never applied half-way.
+(`kubernetes-mcp-proxy.sh down && ... up`). A missing or unversioned
+rules file locks every tools/call (schema lock, above); a malformed
+entry is dropped and logged, never applied half-way.
 
 To widen the namespace scope:
 
@@ -145,8 +149,7 @@ typically want on top of a hosted/shared MCP):
 ## Security notes
 
 - **Loopback only, no auth**: any local process can talk to `:3720` /
-  `:8081`. That is the same model as github-mcp-proxy - fine on a
-  single-user machine, not a multi-tenant host.
+  `:8081`. Fine on a single-user machine, not on a multi-tenant host.
 - **Workloads can still leak denied kinds**: a Pod in an allowed namespace
   can mount a Secret and print it via `pods_log`. The ceiling is upstream
   `read_only = true` (kills every write) plus real RBAC; the proxy narrows
@@ -260,7 +263,7 @@ production:
    - `resources_create_or_update` with a Secret manifest -> `-32000`
    - direct `:8081` Secret list -> refused by upstream
      (`denied_resources` backstop)
-3. Watch `/tmp/opencode/kubernetes-mcp-proxy.log` while developers use
+3. Watch `/tmp/kubernetes-mcp-proxy.log` while developers use
    it for a few days - every blocked call and filtered response is
    logged; review what was *not* blocked.
 4. Inventory the secret-holding CRDs actually installed (SealedSecrets,
