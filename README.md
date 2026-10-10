@@ -104,7 +104,13 @@ If you run opencode inside an omac sandbox, grant the port
 }
 ```
 
-- `schema` - upstream release the rules were written against (drift marker).
+- `schema` - upstream release the rules were written against, pinned as
+  `containers/kubernetes-mcp-server@vX.Y.Z`. **Enforced at startup**: the
+  proxy asks upstream for its version (`initialize` -> `serverInfo`) and
+  locks every `tools/call` (error -32000 with a refresh hint) on mismatch
+  until the rules are refreshed and the proxy restarted. `initialize` and
+  `tools/list` keep passing so the new schema can be captured through the
+  proxy. An unset/unversioned `schema` also locks (see Upgrading).
 - `deny_tools` - tool blocked outright.
 - `deny_calls` - exact tool + subset match on arguments (every `if` pair
   must equal the call's arguments; extra arguments do not stop a match).
@@ -141,10 +147,13 @@ To widen the namespace scope:
   carries only its kind and name (values never appear), and the event's
   own namespace is still filtered. Name-only disclosure; add `events_list`
   to `deny_tools` if even that is too much.
-- **Deny rules fail open on drift**: if upstream renames a tool, a
-  `deny_tools` entry silently stops matching. Run `tests/validate.sh`
-  (rules vs committed `tools-list@<version>.json`) after any upstream
-  bump, and refresh the snapshot (procedure in AGENTS.md).
+- **Version drift locks the proxy**: the rules `schema` tag is checked
+  against the live upstream version at startup. A Renovate-style bump of
+  the binary without refreshing rules+snapshot locks every `tools/call`
+  (with a hint) instead of silently running the old policy against new
+  tools. Argument-level drift inside a matching tag still fails open -
+  `tests/validate.sh` (rules vs committed snapshot) is the offline
+  check; the full process is in Upgrading below.
 - **Create-manifest sniffing is line-based for YAML** (top-level `kind`,
   `namespace` inside the first `metadata:` block). Exotic styles (flow
   mappings) are refused rather than forwarded unverified. JSON manifests
@@ -170,3 +179,45 @@ kubernetes-mcp-proxy.sh up
 # initialize + tools/call pods_list {} through http://127.0.0.1:3720/mcp
 # -> only allowed namespaces remain in the YAML
 ```
+
+## Upgrading (new upstream release)
+
+The proxy is pinned to one upstream tag (rules `schema` field). The
+intended flow is Renovate-style: the org pins the upstream binary, a
+human reviews the upstream changelog, bumps the pin - and the proxy
+stays in lockstep as an extra defense layer. When the binary is bumped,
+the running proxy **locks every `tools/call`** until the policy is
+re-synchronized. Process:
+
+1. **Read the upstream changelog**:
+   [containers/kubernetes-mcp-server releases](https://github.com/containers/kubernetes-mcp-server/releases)
+   (and the Go MCP SDK bump if mentioned). Note any Kubernetes version
+   support changes - they decide which kinds/APIs the tools can see.
+2. **Install the new binary** (same command as Install, new tag) and
+   `kubernetes-mcp-proxy.sh down && ... up`. The proxy now logs
+   `schema LOCKED` and every tools/call returns -32000 with a hint;
+   `initialize` and `tools/list` still pass through.
+3. **Capture the new schema through the locked proxy**: initialize
+   (grab `Mcp-Session-Id`), then `tools/list`, extract the `data:`
+   frames, normalize (jq one-liner in AGENTS.md).
+4. **Diff against the committed snapshot** (`tools-list@<old-tag>.json`)
+   and review - this is the human review step:
+   - **New tools**: any escape hatches (exec/run/log/port-forward
+     style), anything reading kubeconfig or cloud credentials, any new
+     secret-holding CRD kind? Add to `deny_tools` / `deny_kinds`.
+   - **Changed arguments**: new namespace-like args must be covered by
+     the namespace checks; new manifest-string args (like `resource`)
+     need the same sniffing; new kind enums may need `deny_kinds`
+     entries; new all-namespaces booleans are caught by the response
+     filter but confirm it.
+   - **Removed tools**: drop stale `deny_tools` entries (validate.sh
+     fails otherwise).
+5. **Bump the rules `schema` field** to the new tag, apply the rule
+   changes from step 4, save the normalized snapshot as
+   `tools-list@<new-tag>.json` (delete the old one).
+6. **Run `sh tests/validate.sh`** (rules vs snapshot, toml pins) and
+   `sh tests/e2e.sh` (policy behavior against the stub).
+7. **Restart and verify live**: `kubernetes-mcp-proxy.sh down && ... up`,
+   confirm the log line `schema ok: upstream matches rules ...`, then
+   smoke-test: a denied kind (Secret list -> -32000) and a filtered
+   list (`pods_list {}` -> only allowed namespaces).

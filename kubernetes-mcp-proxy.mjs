@@ -3,6 +3,8 @@
 // Request side:  deny_tools / deny_calls / deny_kinds (incl. create manifests) / allowed_namespaces.
 // Response side: filters list & get results (YAML text, structuredContent, tables) so
 // "all namespaces" lookups only return allowed namespaces.
+// Schema lock: rules pin one upstream tag; mismatch/unset => every tools/call denied
+// (drift alarm for Renovate-style bumps; initialize/tools/list keep passing).
 // Zero deps. Node >= 18. See README.md; rules grammar in AGENTS.md.
 import { readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
@@ -49,7 +51,7 @@ try {
     if (bad.length) log(`rules: dropped ${bad.length} malformed deny_calls: ${bad.join(" ")}`);
   }
 } catch (e) {
-  log(`rules: cannot read ${RULES_PATH} (${e.message}) - FORWARDING EVERYTHING`);
+  log(`rules: cannot read ${RULES_PATH} (${e.message}) - NO POLICY LOADED (tools/call will be locked)`);
 }
 const denyTools = new Set(rules.deny_tools);
 const denyKinds = new Set(rules.deny_kinds);
@@ -59,6 +61,47 @@ log(
     allowedNs ? [...allowedNs].join(",") : "*"
   } (schema ${rules.schema})`
 );
+
+// --- schema lock: tight version coupling with the pinned upstream tag ---
+// Orgs pin the upstream binary and bump it after human review (Renovate-style).
+// The proxy verifies once at startup that upstream's initialize serverInfo.version
+// matches the rules schema @tag. On mismatch/unset/unreachable: every tools/call
+// is denied locally with a refresh hint; initialize and tools/list keep passing
+// so the new schema can be captured through the proxy. Restart to re-verify.
+const expectTag = /@([^@]+)$/.exec(rules.schema)?.[1] ?? null;
+let lockReason = null;
+{
+  const norm = (v) => String(v).replace(/^v/, "");
+  try {
+    if (!expectTag)
+      lockReason = `rules schema "${rules.schema}" has no @version - set "schema": "containers/kubernetes-mcp-server@vX.Y.Z" to the pinned upstream tag, then restart`;
+    else {
+      const res = await fetch(TARGET, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "kubernetes-mcp-proxy", version: "0" } },
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+      const raw = await res.text();
+      const line = raw.split("\n").find((l) => l.startsWith("data: "));
+      const got = JSON.parse(line ? line.slice(6) : raw)?.result?.serverInfo?.version ?? null;
+      if (!got) lockReason = `upstream did not report serverInfo.version - cannot verify rules schema ${rules.schema}`;
+      else if (norm(got) !== norm(expectTag))
+        lockReason = `schema drift: upstream reports ${got}, rules pin ${expectTag} - capture tools/list, refresh snapshot+rules (AGENTS.md), run tests/validate.sh, restart`;
+    }
+  } catch (e) {
+    lockReason = `schema check failed: upstream unreachable at startup (${e.message}) - restart the proxy once upstream is up`;
+  }
+}
+log(lockReason ? `schema LOCKED: ${lockReason}` : `schema ok: upstream matches rules ${expectTag}`);
 
 // --- request-side policy ---
 function sniffManifest(s) {
@@ -336,7 +379,7 @@ function handle(req, res, body) {
     if (parsed.method === "tools/call") {
       reqId = parsed.id ?? null;
       toolsName = parsed.params?.name;
-      blockReason = blockedRequest(parsed);
+      blockReason = lockReason ?? blockedRequest(parsed);
       shouldFilter = blockReason === null;
     }
   }

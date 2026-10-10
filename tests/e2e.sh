@@ -11,6 +11,8 @@ PROXY_LOG="$TMP/proxy.log"; : > "$PROXY_LOG"
 cleanup() {
   [ -n "${PROXY_PID:-}" ] && kill "$PROXY_PID" 2>/dev/null || true
   [ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null || true
+  [ -n "${PROXY2_PID:-}" ] && kill "$PROXY2_PID" 2>/dev/null || true
+  [ -n "${STUB2_PID:-}" ] && kill "$STUB2_PID" 2>/dev/null || true
   rm -rf "$TMP"
 }
 trap cleanup EXIT INT TERM
@@ -20,6 +22,11 @@ pass() { echo "ok: $*"; }
 
 STUB_LOG="$STUB_LOG" nohup node "$DIR/tests/stub-upstream.mjs" >"$TMP/stub.out" 2>&1 &
 STUB_PID=$!
+i=0; while [ $i -lt 50 ]; do
+  curl -s -o /dev/null http://127.0.0.1:18081/ 2>/dev/null && break
+  i=$((i+1)); sleep 0.1
+done
+[ $i -lt 50 ] || fail "stub did not start: $(cat "$TMP/stub.out")"
 # e2e rules: repo defaults + one deny_calls entry (runtime grammar check)
 jq '.deny_calls = [{"tool": "pods_list_in_namespace", "if": {"namespace": "default"}, "reason": "e2e deny_calls"}]' \
   "$DIR/kubernetes-mcp-proxy.rules.json" > "$TMP/rules.json"
@@ -113,5 +120,40 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:1720/mcp
   -H "$B" -H "$A" -H 'origin: https://evil.example' -d '{}')
 [ "$code" = 403 ] || fail "browser origin not rejected (got $code)"
 pass "browser request rejected 403"
+
+# --- schema lock: drifted upstream tag locks tools/call, inspection stays open ---
+STUB_LOG="$TMP/stub2-calls.log"; : > "$STUB_LOG"
+STUB_LOG="$STUB_LOG" STUB_VERSION=v9.9.9 STUB_PORT=18082 \
+  nohup node "$DIR/tests/stub-upstream.mjs" >"$TMP/stub2.out" 2>&1 &
+STUB2_PID=$!
+i=0; while [ $i -lt 50 ]; do
+  curl -s -o /dev/null http://127.0.0.1:18082/ 2>/dev/null && break
+  i=$((i+1)); sleep 0.1
+done
+[ $i -lt 50 ] || fail "drift stub did not start: $(cat "$TMP/stub2.out")"
+PORT=1721 UPSTREAM_URL=http://127.0.0.1:18082/mcp \
+  RULES="$TMP/rules.json" LOG="$PROXY_LOG" \
+  nohup node "$DIR/kubernetes-mcp-proxy.mjs" >"$TMP/proxy2.out" 2>&1 &
+PROXY2_PID=$!
+i=0; while [ $i -lt 50 ]; do
+  curl -s -o /dev/null http://127.0.0.1:1721/mcp 2>/dev/null && break
+  i=$((i+1)); sleep 0.1
+done
+[ $i -lt 50 ] || fail "drift proxy did not start: $(cat "$TMP/proxy2.out")"
+# initialize + tools/list must keep passing so the new schema can be captured
+curl -sS -D "$TMP/h2" -o /dev/null -X POST http://127.0.0.1:1721/mcp -H "$B" -H "$A" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"0"}}}'
+grep -qi '^mcp-session-id: STUBSESSION' "$TMP/h2" || fail "locked proxy: initialize not forwarded"
+curl -sS -o "$TMP/drift-tools" -X POST http://127.0.0.1:1721/mcp -H "$B" -H "$A" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+grep -q '"tools"' "$TMP/drift-tools" || fail "locked proxy: tools/list not forwarded"
+# tools/call must be denied with the drift hint, never forwarded
+curl -sS -o "$TMP/drift-call" -X POST http://127.0.0.1:1721/mcp -H "$B" -H "$A" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"pods_list","arguments":{}}}'
+jq -e '.error.code == -32000' "$TMP/drift-call" >/dev/null || fail "locked proxy: tools/call not denied, got $(jq -c . "$TMP/drift-call")"
+jq -r '.error.message' "$TMP/drift-call" | grep -q 'schema drift' || fail "locked proxy: drift hint missing"
+jq -r '.error.message' "$TMP/drift-call" | grep -q 'v9.9.9' || fail "locked proxy: upstream version not named in hint"
+[ ! -s "$TMP/stub2-calls.log" ] || fail "locked proxy: tools/call leaked to drifted upstream"
+pass "schema drift: tools/call locked with hint, initialize/tools/list still pass"
 
 echo "ALL PASSED"

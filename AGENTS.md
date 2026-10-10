@@ -32,8 +32,19 @@ repo (same request-flow philosophy, same rules grammar roots).
   the item's `kind` (defense in depth; request side already blocks the
   kind argument).
 - **Rules load once at startup.** No reload endpoint. Edit file, restart
-  (down && up). Missing rules file = forward everything (fail open,
-  logged). Malformed entries dropped + logged, never half-applied.
+  (down && up). Malformed deny_calls entries dropped + logged, never
+  half-applied.
+- **Schema lock (tight version coupling).** The rules `schema` field
+  pins one upstream tag. At startup the proxy initializes against
+  upstream and compares `serverInfo.version` with the `@tag`
+  (leading-`v` normalized). Unversioned/missing rules, a version
+  mismatch, or an unreachable upstream => every tools/call is denied
+  locally with a refresh hint (fail closed - this replaced the old
+  missing-file fail-open). initialize/tools/list keep passing so the
+  new schema can be captured through the proxy. Intended flow: orgs
+  pin the upstream binary (Renovate-style) and bump after human
+  review; the lock is the alarm that rules+snapshot need the same
+  bump. Restart to re-verify.
 - **HOP headers stripped** both directions conceptually: request strips
   host, authorization, connection, keep-alive, transfer-encoding, upgrade,
   proxy-*. Accept is NEVER stripped (go-sdk streamable requires
@@ -77,7 +88,12 @@ refused (fail closed).
 
 ## tools-list snapshot / drift check
 
-Deny rules fail open on upstream drift. Procedure on every upstream bump:
+The running proxy self-enforces coupling: on upstream bump it locks
+tools/call (schema lock, above) until snapshot + rules schema are bumped
+to the new tag and it is restarted. Argument-level drift inside a
+matching tag still fails open - that is what the snapshot check below
+catches. The full user-facing process is README "Upgrading"; the
+maintainer steps on every upstream bump:
 
 1. Start upstream (`kubernetes-mcp-proxy.sh up`), initialize, then
    `tools/list` through the proxy; extract `data:` frames.
@@ -90,11 +106,21 @@ Deny rules fail open on upstream drift. Procedure on every upstream bump:
      required: (.inputSchema.required // [])}]' tools.json > tools.norm.json
    ```
 
-3. `diff tools-list@<old>.json tools.norm.json` - report new/changed/
-   removed tools, agree rule changes, then replace the snapshot with
-   `tools-list@<new-tag>.json` and update the rules `schema` field.
+3. `diff tools-list@<old>.json tools.norm.json` and review with the
+   owner - security-relevant deltas first:
+   - new escape-hatch tools (exec/run/log/config-view style) ->
+     `deny_tools`
+   - new secret-holding CRD kinds or kind enums -> `deny_kinds`
+   - new namespace-like args, manifest-string args (need sniffing),
+     all-namespaces booleans (response filter must cover)
+   - removed tools -> drop stale `deny_tools` entries
+   Then replace the snapshot with `tools-list@<new-tag>.json` and
+   update the rules `schema` field to the same tag.
 4. `sh tests/validate.sh` must pass (it cross-checks rules against the
-   snapshot and pins toml invariants).
+   snapshot, pins toml invariants, and requires the schema @tag), then
+   `sh tests/e2e.sh`.
+5. Restart and confirm `schema ok: upstream matches rules ...` in the
+   log; smoke-test a denied kind and a namespace-filtered list live.
 
 ## Tests
 

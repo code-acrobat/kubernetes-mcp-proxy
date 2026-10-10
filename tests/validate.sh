@@ -15,6 +15,10 @@ sh -n "$DIR/tests/e2e.sh" || fail "e2e syntax"
 
 jq -e . "$DIR/kubernetes-mcp-proxy.rules.json" >/dev/null || fail "rules json"
 
+# schema must pin an upstream tag: the proxy locks tools/call without one
+jq -e '.schema | test("@v[0-9]")' "$DIR/kubernetes-mcp-proxy.rules.json" >/dev/null \
+  || fail "rules: schema must pin an @vX.Y.Z upstream tag"
+
 # rules must reference only tools present in the snapshot, and only real args
 jq -n --slurpfile R "$DIR/kubernetes-mcp-proxy.rules.json" --slurpfile L "$SNAPSHOT" '
   ($L[0] | map({key: .name, value: .props}) | from_entries) as $tools

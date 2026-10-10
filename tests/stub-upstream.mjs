@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // Minimal streamable-HTTP stub of kubernetes-mcp-server for tests/e2e.sh.
 // Canned responses cover: text-only YAML list, structured list, single object,
-// namespaces list, events list. Records every tools/call name to $STUB_LOG.
+// namespaces list, events list, tabwriter table. Records every tools/call name
+// to $STUB_LOG. STUB_PORT (default 18081) and STUB_VERSION (default v0.0.67,
+// must match the rules schema @tag unless testing the schema lock) are env-tunable.
 import http from "node:http";
 import { appendFileSync } from "node:fs";
 
 const LOG = process.env.STUB_LOG || "/tmp/opencode/stub-calls.log";
 const SID = "STUBSESSION0123456789ABCDEF";
+const VERSION = process.env.STUB_VERSION || "v0.0.67";
 
 const PODS_YAML = `apiVersion: v1
 items:
@@ -151,7 +154,7 @@ http
         res.end(
           text(msg.id, "", {}).replace(
             /"content":\[\{"type":"text","text":""\}\]/,
-            `"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"stub","version":"0"}`
+            `"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"stub","version":"${VERSION}"}`
           )
         );
         return;
@@ -176,4 +179,6 @@ http
       res.end();
     });
   })
-  .listen(18081, "127.0.0.1", () => console.error("stub on 18081"));
+  .listen(Number(process.env.STUB_PORT || 18081), "127.0.0.1", () =>
+    console.error(`stub on ${process.env.STUB_PORT || 18081} (version ${VERSION})`)
+  );
