@@ -34,23 +34,20 @@ let rules = {
 };
 try {
   const raw = JSON.parse(readFileSync(RULES_PATH, "utf8"));
-  const bad = [];
   const str = (v) => (typeof v === "string" && v ? v : null);
   const arr = (v) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
   rules.schema = str(raw.schema) || "(unset)";
   rules.deny_tools = arr(raw.deny_tools);
-  rules.deny_calls = arr(raw.deny_calls?.map?.((r) => (r && str(r.tool) ? r : null)) ?? raw.deny_calls).filter(
-    (r) => r.tool && r.if && typeof r.if === "object"
-  );
-  if (Array.isArray(raw.deny_calls))
-    for (const r of raw.deny_calls)
-      if (!(r && str(r.tool) && r.if && typeof r.if === "object")) bad.push(JSON.stringify(r));
   rules.deny_kinds = arr(raw.deny_kinds);
-  if (Array.isArray(raw.allowed_namespaces)) {
-    rules.allowed_namespaces = arr(raw.allowed_namespaces);
-    if (!rules.allowed_namespaces.length) rules.allowed_namespaces = null; // [] = allow none? treat as unset, fail loud instead
+  if (Array.isArray(raw.allowed_namespaces)) rules.allowed_namespaces = arr(raw.allowed_namespaces); // [] = deny every namespace
+  if (Array.isArray(raw.deny_calls)) {
+    const bad = [];
+    for (const r of raw.deny_calls) {
+      if (r && str(r.tool) && r.if && typeof r.if === "object") rules.deny_calls.push(r);
+      else bad.push(JSON.stringify(r));
+    }
+    if (bad.length) log(`rules: dropped ${bad.length} malformed deny_calls: ${bad.join(" ")}`);
   }
-  if (bad.length) log(`rules: dropped ${bad.length} malformed deny_calls: ${bad.join(" ")}`);
 } catch (e) {
   log(`rules: cannot read ${RULES_PATH} (${e.message}) - FORWARDING EVERYTHING`);
 }
@@ -108,9 +105,6 @@ function blockedRequest(msg) {
   }
   if (args.namespace !== undefined && allowedNs && !allowedNs.has(String(args.namespace)))
     return `namespace ${args.namespace} is not allowed`;
-  if (args.namespaces !== undefined)
-    for (const ns of String(args.namespaces).split(",").map((s) => s.trim()).filter(Boolean))
-      if (allowedNs && !allowedNs.has(ns)) return `namespace ${ns} is not allowed`;
   return null;
 }
 
@@ -388,7 +382,7 @@ function handle(req, res, body) {
       });
       ures.on("end", () => {
         if (over) {
-          log(`dropped oversized ${nameOf(toolsName)} response (${rsize} bytes)`);
+          log(`dropped oversized ${toolsName ?? "call"} response (${rsize} bytes)`);
           res.writeHead(200, { "content-type": "application/json" });
           res.end(
             JSON.stringify({
@@ -420,7 +414,6 @@ function handle(req, res, body) {
   });
   up.end(body);
 }
-const nameOf = (n) => n ?? "call";
 
 const srv = http.createServer((req, res) => {
   if (req.headers.origin || req.headers["sec-fetch-site"]) {

@@ -112,7 +112,7 @@ If you run opencode inside an omac sandbox, grant the port
   `resources_create_or_update` manifests, *and* filtered from responses.
 - `allowed_namespaces` - the only namespaces that can be targeted or seen.
   Omit to allow every namespace (response namespace filter off; kind filter
-  stays on).
+  stays on); `[]` denies every namespace.
 
 Rules are read **once at startup** - edit the file, then restart
 (`kubernetes-mcp-proxy.sh down && ... up`). A missing rules file forwards
@@ -137,6 +137,10 @@ To widen the namespace scope:
 - **`pods_log` can print secret material** that a workload has mounted;
   it is not denied by default because it is the main debugging tool.
   Add it to `deny_tools` if that trade-off is not yours to make.
+- **Events can name denied resources**: an event that references a Secret
+  carries only its kind and name (values never appear), and the event's
+  own namespace is still filtered. Name-only disclosure; add `events_list`
+  to `deny_tools` if even that is too much.
 - **Deny rules fail open on drift**: if upstream renames a tool, a
   `deny_tools` entry silently stops matching. Run `tests/validate.sh`
   (rules vs committed `tools-list@<version>.json`) after any upstream

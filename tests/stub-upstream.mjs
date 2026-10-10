@@ -109,6 +109,12 @@ const results = {
         },
       }
     ),
+  // tabwriter table (pods_top/nodes_top shape regardless of list_output)
+  pods_top: (id) =>
+    text(
+      id,
+      "NAMESPACE   NAME              CPU(cores)   MEMORY(bytes)\ndefault     app-in-default    1m           20Mi\nkube-system coredns-abc       2m           40Mi\n"
+    ),
 };
 
 http

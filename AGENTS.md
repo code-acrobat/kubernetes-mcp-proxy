@@ -65,7 +65,7 @@ repo (same request-flow philosophy, same rules grammar roots).
 `deny_calls` is github-mcp-proxy compatible (subset match on `if`).
 Extensions: `deny_kinds` (kind argument + create-manifest sniff +
 response items) and `allowed_namespaces` (request namespace arguments +
-response items; omit for `*`).
+response items; omit for `*`, `[]` denies all).
 
 Create-manifest sniffing (`resources_create_or_update`, any `resource`
 string argument): JSON manifests are parsed exactly (`kind`,

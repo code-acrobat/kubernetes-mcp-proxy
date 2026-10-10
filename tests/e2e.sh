@@ -20,8 +20,11 @@ pass() { echo "ok: $*"; }
 
 STUB_LOG="$STUB_LOG" nohup node "$DIR/tests/stub-upstream.mjs" >"$TMP/stub.out" 2>&1 &
 STUB_PID=$!
+# e2e rules: repo defaults + one deny_calls entry (runtime grammar check)
+jq '.deny_calls = [{"tool": "pods_list_in_namespace", "if": {"namespace": "default"}, "reason": "e2e deny_calls"}]' \
+  "$DIR/kubernetes-mcp-proxy.rules.json" > "$TMP/rules.json"
 PORT=1720 UPSTREAM_URL=http://127.0.0.1:18081/mcp \
-  RULES="$DIR/kubernetes-mcp-proxy.rules.json" LOG="$PROXY_LOG" \
+  RULES="$TMP/rules.json" LOG="$PROXY_LOG" \
   nohup node "$DIR/kubernetes-mcp-proxy.mjs" >"$TMP/proxy.out" 2>&1 &
 PROXY_PID=$!
 i=0; while [ $i -lt 50 ]; do
@@ -77,6 +80,12 @@ call 6 '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"resource
 jq -e '.error.code == -32000' "$TMP/data-6" >/dev/null || fail "resources_get kube-system: expected -32000, got $(jq -c . "$TMP/data-6")"
 pass "single out-of-scope object blocked as -32000"
 
+# --- response filtering: table fallback (pods_top, tabwriter) ---
+call 14 '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"pods_top","arguments":{"all_namespaces":true}}}'
+txt 14 | grep -q 'app-in-default' || fail "pods_top: default row missing"
+txt 14 | grep -q 'coredns-abc' && fail "pods_top: kube-system row leaked"
+pass "pods_top table filtered to default only"
+
 # --- request-side denials (must never reach upstream) ---
 : > "$STUB_LOG"
 call 7 '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"pods_exec","arguments":{"name":"x","command":["id"]}}}'
@@ -93,8 +102,11 @@ call 12 '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"pods_l
 jq -e '.error.code == -32000' "$TMP/data-12" >/dev/null || fail "pods_list_in_namespace kube-system not blocked"
 call 13 '[{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"pods_list","arguments":{}}}]'
 jq -e '.error.code == -32000' "$TMP/data-13" >/dev/null || fail "batch with tools/call not blocked"
+call 15 '{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"pods_list_in_namespace","arguments":{"namespace":"default"}}}'
+jq -e '.error.code == -32000' "$TMP/data-15" >/dev/null || fail "deny_calls rule not enforced"
+jq -r '.error.message' "$TMP/data-15" | grep -q 'e2e deny_calls' || fail "deny_calls reason not propagated"
 [ ! -s "$STUB_LOG" ] || fail "blocked calls leaked to upstream: $(tr '\n' ' ' < "$STUB_LOG")"
-pass "request-side denials (exec/Secret/manifests/RBAC/ns/batch) never reached upstream"
+pass "request-side denials (exec/Secret/manifests/RBAC/ns/batch/deny_calls) never reached upstream"
 
 # --- browser guard ---
 code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:1720/mcp \
