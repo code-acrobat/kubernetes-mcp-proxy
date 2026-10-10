@@ -66,9 +66,34 @@ removed; a single out-of-scope object (`resources_get`) becomes the same
 | `tools-list@v0.0.67.json` | normalized snapshot of upstream tools (full tag inventory, drift marker; capture with `read_only` off) |
 | `tests/validate.sh` | offline: syntax + rules-vs-snapshot |
 | `tests/e2e.sh` | offline: full policy behavior against a stub upstream |
-| `skills/kubernetes-mcp-proxy-rules/` | AI-assisted install/refresh workflow (skill: live-schema check + validated install) |
+| `skills/kubernetes-mcp-proxy-rules/` | **recommended install path**: AI-assisted install/refresh workflow (policy discussion, live-schema validation, install + probes) |
 
 ## Install
+
+**Recommended: install via the bundled AI skill.** The repo ships
+[`skills/kubernetes-mcp-proxy-rules/`](skills/kubernetes-mcp-proxy-rules/),
+an AI-assisted install/refresh workflow. Copy it to where your agent
+picks skills up (e.g.
+`cp -r skills/kubernetes-mcp-proxy-rules ~/.agents/skills/`) and ask
+your agent to *"set up kubernetes-mcp-proxy"*. The skill then:
+
+- **discusses the policy with you** - allowed namespaces, which
+  secret-holding CRDs your cluster actually has installed, whether
+  `pods_log` may stay open (app logs reach your LLM provider), and
+  read-only vs. writes;
+- **validates the rules against the live tool schema before
+  installing** - a rule that names a tool/argument the pinned tag does
+  not have matches nothing and would silently fail open at call time
+  (see Security notes);
+- **installs, restarts, and probes the running proxy** - denied kind
+  returns `-32000`, an all-namespaces list comes back filtered, the
+  upstream backstop refuses a direct Secret read.
+
+It is also the **refresh path after every upstream bump** (Upgrading
+below): it captures the new schema, diffs it against the committed
+snapshot, and clears the schema lock.
+
+Manual install (same result, no schema validation):
 
 ```sh
 cp kubernetes-mcp-proxy.mjs kubernetes-mcp-proxy.sh \
@@ -241,7 +266,10 @@ intended flow is Renovate-style: the org pins the upstream binary, a
 human reviews the upstream changelog, bumps the pin - and the proxy
 stays in lockstep as an extra defense layer. When the binary is bumped,
 the running proxy **locks every `tools/call`** until the policy is
-re-synchronized. Process:
+re-synchronized. The bundled skill (`kubernetes-mcp-proxy-rules`) does
+the mechanical work of steps 3-7 - schema capture, snapshot diff,
+validation, rules refresh, restart, probes - so the human keeps steps
+1-2 (changelog review, binary swap). Process:
 
 1. **Read the upstream changelog**:
    [containers/kubernetes-mcp-server releases](https://github.com/containers/kubernetes-mcp-server/releases)
