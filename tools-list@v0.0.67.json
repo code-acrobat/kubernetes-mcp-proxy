@@ -1,0 +1,324 @@
+[
+  {
+    "name": "configuration_view",
+    "props": {
+      "minified": {
+        "type": "boolean"
+      }
+    },
+    "required": []
+  },
+  {
+    "name": "events_list",
+    "props": {
+      "fieldSelector": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  {
+    "name": "namespaces_list",
+    "props": {
+      "fieldSelector": {
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  {
+    "name": "nodes_log",
+    "props": {
+      "name": {
+        "type": "string"
+      },
+      "query": {
+        "type": "string"
+      },
+      "tailLines": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "name",
+      "query"
+    ]
+  },
+  {
+    "name": "nodes_stats_summary",
+    "props": {
+      "name": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ]
+  },
+  {
+    "name": "nodes_top",
+    "props": {
+      "label_selector": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  {
+    "name": "pods_delete",
+    "props": {
+      "name": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ]
+  },
+  {
+    "name": "pods_exec",
+    "props": {
+      "command": {
+        "type": "array"
+      },
+      "container": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "command"
+    ]
+  },
+  {
+    "name": "pods_get",
+    "props": {
+      "name": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ]
+  },
+  {
+    "name": "pods_list",
+    "props": {
+      "fieldSelector": {
+        "type": "string"
+      },
+      "labelSelector": {
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  {
+    "name": "pods_list_in_namespace",
+    "props": {
+      "fieldSelector": {
+        "type": "string"
+      },
+      "labelSelector": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "namespace"
+    ]
+  },
+  {
+    "name": "pods_log",
+    "props": {
+      "container": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      },
+      "previous": {
+        "type": "boolean"
+      },
+      "tail": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "name"
+    ]
+  },
+  {
+    "name": "pods_run",
+    "props": {
+      "image": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      },
+      "port": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "image"
+    ]
+  },
+  {
+    "name": "pods_top",
+    "props": {
+      "all_namespaces": {
+        "type": "boolean"
+      },
+      "label_selector": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  {
+    "name": "projects_list",
+    "props": {},
+    "required": []
+  },
+  {
+    "name": "resources_create_or_update",
+    "props": {
+      "resource": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "resource"
+    ]
+  },
+  {
+    "name": "resources_delete",
+    "props": {
+      "apiVersion": {
+        "type": "string"
+      },
+      "gracePeriodSeconds": {
+        "type": "integer"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "apiVersion",
+      "kind",
+      "name"
+    ]
+  },
+  {
+    "name": "resources_get",
+    "props": {
+      "apiVersion": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "apiVersion",
+      "kind",
+      "name"
+    ]
+  },
+  {
+    "name": "resources_list",
+    "props": {
+      "apiVersion": {
+        "type": "string"
+      },
+      "fieldSelector": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "labelSelector": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "apiVersion",
+      "kind"
+    ]
+  },
+  {
+    "name": "resources_scale",
+    "props": {
+      "apiVersion": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      },
+      "scale": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "apiVersion",
+      "kind",
+      "name"
+    ]
+  }
+]

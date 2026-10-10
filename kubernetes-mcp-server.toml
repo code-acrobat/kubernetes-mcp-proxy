@@ -1,0 +1,13 @@
+# Hardened upstream config for kubernetes-mcp-server (HTTP mode).
+# The policy layer is kubernetes-mcp-proxy (rules JSON); this file only:
+#  - binds loopback,  - enables the core+config toolsets,
+#  - forces list_output = "yaml" (the proxy's response filter parses YAML
+#    item blocks; table output is only a fallback for pods_top/nodes_top).
+port = "8081"
+bind_address = "127.0.0.1"
+toolsets = ["core", "config"]
+list_output = "yaml"
+# kubeconfig defaults to ~/.kube/config. configuration_view stays at its
+# upstream default (disabled in HTTP mode); the proxy denies it as well.
+# read_only = true   # upstream kill switch: blocks every write, policy or not
+# stateless = false  # keep default: stateful sessions via Mcp-Session-Id

@@ -1,0 +1,24 @@
+{
+  "schema": "containers/kubernetes-mcp-server@v0.0.67",
+  "deny_tools": [
+    "pods_exec",
+    "pods_run",
+    "configuration_view",
+    "nodes_log"
+  ],
+  "deny_calls": [],
+  "deny_kinds": [
+    "Secret",
+    "ConfigMap",
+    "SealedSecret",
+    "ExternalSecret",
+    "SecretStore",
+    "ClusterSecretStore",
+    "SecretProviderClass",
+    "Role",
+    "RoleBinding",
+    "ClusterRole",
+    "ClusterRoleBinding"
+  ],
+  "allowed_namespaces": ["default"]
+}
