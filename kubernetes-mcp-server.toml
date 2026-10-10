@@ -9,7 +9,12 @@ toolsets = ["core", "config"]
 list_output = "yaml"
 # kubeconfig defaults to ~/.kube/config. configuration_view stays at its
 # upstream default (disabled in HTTP mode); the proxy denies it as well.
-# read_only = true   # upstream kill switch: blocks every write, policy or not
+# Safe-by-default example: every write is refused at the source, policy
+# or not. This also closes the workload ferret chain (ADVERSARIAL-TESTS:
+# create echo Pod mounting a Secret + pods_log). Comment out only if the
+# client legitimately needs writes, then consider disable_destructive
+# (keeps create/update, blocks delete) as the middle setting.
+read_only = true
 # stateless = false  # keep default: stateful sessions via Mcp-Session-Id
 
 # Upstream backstop: the same secret-holding kinds the proxy denies are

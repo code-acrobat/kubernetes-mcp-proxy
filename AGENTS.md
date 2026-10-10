@@ -52,6 +52,12 @@ changing the code.
   go-sdk localhost protection stays on (never set
   `disable_localhost_protection`). The proxy strips the client Host header
   so node re-sets it to the loopback target.
+- **Upstream ships `read_only = true`.** The example config refuses
+  every write at the source, which also closes the workload ferret
+  chain (ADVERSARIAL-TESTS.md: echo Pod mounting a Secret +
+  `pods_log`). Relaxing it is a deliberate, documented choice -
+  `validate.sh` pins the setting; if writes are enabled, the
+  remaining ceiling for the chain is cluster admission policy.
 - **Upstream `denied_resources` mirrors `deny_kinds`.** The shipped TOML
   denies the same kinds at the upstream (GVK-exact), so direct `:8081`
   access or a proxy hole still cannot read them. Upstream control is
@@ -101,6 +107,14 @@ matching tag still fails open - that is what the snapshot check below
 catches. The full user-facing process is README "Upgrading"; the
 maintainer steps on every upstream bump:
 
+The snapshot is the tag's **full** tool inventory, not the shipped
+config's view of it: capture with `read_only` temporarily commented
+out in the TOML (the shipped `read_only = true` hides the write tools
+- `pods_delete`, `pods_exec`, `pods_run`, `resources_create_or_update`,
+`resources_delete`, `resources_scale` - and validate.sh requires the
+rules' `deny_tools` entries to be present in the snapshot); restore
+`read_only` right after the capture.
+
 1. Start upstream (`kubernetes-mcp-proxy.sh up`), initialize, then
    `tools/list` through the proxy; extract `data:` frames.
 2. Normalize (names, arg types/enums, required only):
@@ -119,7 +133,8 @@ maintainer steps on every upstream bump:
    - new secret-holding CRD kinds or kind enums -> `deny_kinds`
    - new namespace-like args, manifest-string args (need sniffing),
      all-namespaces booleans (response filter must cover)
-   - removed tools -> drop stale `deny_tools` entries
+   - removed tools -> drop stale `deny_tools` entries (exception: the
+     `read_only` config delta described above - keep those entries)
    Then replace the snapshot with `tools-list@<new-tag>.json` and
    update the rules `schema` field to the same tag.
 4. `sh tests/validate.sh` must pass (it cross-checks rules against the
@@ -131,7 +146,7 @@ maintainer steps on every upstream bump:
 ## Tests
 
 - `tests/validate.sh` - offline: `node --check`, `sh -n`, rules vs
-  snapshot, toml loopback/yaml pins, insecure-default sanity.
+  snapshot, toml loopback/yaml/read_only pins, insecure-default sanity.
 - `tests/e2e.sh` - offline: real proxy against `tests/stub-upstream.mjs`
   (SSE canned responses); asserts handshake passthrough, all four response
   filter paths, request-side denials never reach upstream, browser 403.

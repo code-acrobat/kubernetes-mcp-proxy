@@ -1,11 +1,15 @@
 # Adversarial test results
 
 Evidence for the security claims in the README: what the policy blocks,
-and the one leak chain it provably cannot block. Last run
-**2026-10-10** on minikube v1.39.0 / Kubernetes v1.37.0 (podman
-rootless driver), `kubernetes-mcp-server` **v0.0.67**, proxy on
+and the one leak chain it provably cannot block *through the rules
+file*. Last run **2026-10-10** on minikube v1.39.0 / Kubernetes v1.37.0
+(podman rootless driver), `kubernetes-mcp-server` **v0.0.67**, proxy on
 `127.0.0.1:3720`, shipped default policy (11 `deny_kinds`, 4
 `deny_tools`, `allowed_namespaces: ["default"]`).
+
+The ferret chain below was run with **writes enabled**; the shipped
+example now sets `read_only = true`, which refuses step 1 at the
+upstream (re-verified in the last section).
 
 Everything below ran **through the proxy** unless marked "direct
 `:8081`". Reproduce on a dev cluster you own - the last section creates
@@ -55,7 +59,9 @@ SID=$(curl -sS -D - -o /dev/null -X POST $P -H 'content-type: application/json' 
 curl -sS -o /dev/null -X POST $P -H 'content-type: application/json' -H "$A" \
   -H "mcp-session-id: $SID" -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 
-# 1. create the echo pod through the proxy (allowed kind + namespace)
+# 1. create the echo pod through the proxy (allowed kind + namespace;
+#    requires writes enabled - the shipped default read_only = true
+#    refuses this step, see "Re-verified with the shipped default")
 M='{"apiVersion":"v1","kind":"Pod","metadata":{"name":"secret-ferret","namespace":"default"},"spec":{"restartPolicy":"Never","containers":[{"name":"c","image":"busybox","command":["sh","-c","env|sort;sleep 300"],"envFrom":[{"secretRef":{"name":"postgres-postgresql"}}]}]}}'
 curl -sS -X POST $P -H 'content-type: application/json' -H "$A" -H "mcp-session-id: $SID" \
   -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"resources_create_or_update\",\"arguments\":{\"resource\":$(printf '%s' "$M" | jq -Rs .)}}}"
@@ -71,10 +77,23 @@ curl -sS -X POST $P -H 'content-type: application/json' -H "$A" -H "mcp-session-
 kubectl delete pod secret-ferret -n default
 ```
 
+## Re-verified with the shipped default (`read_only = true`)
+
+Same stack, **2026-10-10**, after flipping the shipped TOML to
+`read_only = true` (the chain above was run with writes enabled):
+
+| attempt (via proxy) | observed result |
+|---|------|
+| chain step 1: `resources_create_or_update` echo Pod | upstream error `unknown tool "resources_create_or_update"` - `read_only` removes the write tools from upstream entirely (`pods_delete`, `pods_exec`, `pods_run`, `resources_create_or_update`, `resources_delete`, `resources_scale` vanish from `tools/list`) |
+| pod exists afterwards | no (`NotFound` from the API) |
+| `resources_list` kind Secret | `-32000` (policy, unchanged) |
+| `pods_list {}` | only `namespace: default` (0 kube-system lines) |
+| `pods_log` on the postgres pod | still allowed - reads are unaffected |
+
 ## Ceilings (what does and does not close the chain)
 
-- **Closes it**: upstream `read_only = true` (refuses the write that
-  starts the chain) or cluster admission policy restricting secret
+- **Closes it**: upstream `read_only = true` - **now the shipped
+  default** - or cluster admission policy restricting secret
   volumes / `envFrom`.
 - **Does NOT close it**: any `deny_kinds`/`deny_calls` rules file (no
   denied object is touched); RBAC on the kubeconfig alone (creating the

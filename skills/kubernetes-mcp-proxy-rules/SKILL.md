@@ -51,8 +51,10 @@ SecretProviderClass, Role, RoleBinding, ClusterRole, ClusterRoleBinding;
    and offer to add matches to `deny_kinds` (and the upstream TOML
    `[[denied_resources]]` mirror - keep them in sync).
 3. **Strictness** - add `pods_log` to `deny_tools`? conditional rules
-   via `deny_calls`? upstream `read_only = true` in the TOML (kills
-   every write at the source)?
+   via `deny_calls`? The shipped TOML runs `read_only = true` (safe
+   default: writes refused at the source); does the user need writes?
+   Commenting it out re-opens the workload ferret chain (README,
+   "Workloads can still leak denied kinds").
 
 Custom rules are fine: start from the shipped defaults and edit with
 the user using the grammar at the bottom.
@@ -100,7 +102,13 @@ rule changes **before** installing:
   namespace checks?), manifest-string args (need the sniff - only
   `resource` is sniffed today), new kind enums, all-namespaces booleans
   (response filter covers them - confirm)
-- **removed tools**: drop stale `deny_tools` entries
+- **removed tools**: drop stale `deny_tools` entries - EXCEPT with the
+  shipped `read_only = true` upstream: then the live list lacks the
+  write tools (`pods_delete`, `pods_exec`, `pods_run`,
+  `resources_create_or_update`, `resources_delete`, `resources_scale`)
+  while the snapshot (full tag inventory) still has them. That delta
+  is the shipped config, not upstream drift - keep those entries, they
+  bite again the moment `read_only` is relaxed.
 
 ## Step 5 - validate the rules against the live schema
 
@@ -110,8 +118,14 @@ lives next to this file:
 
 ```sh
 jq -n --slurpfile R <rules-file> --slurpfile L /tmp/kmp-tools.json \
+  --slurpfile S <repo>/tools-list@<tag>.json \
   -f <path-to-this-dir>/validate.jq
 ```
+
+The committed snapshot is passed as well (union, live wins): the
+shipped upstream runs `read_only = true`, which hides the write tools
+from the live `tools/list` while rules legitimately name them. A tool
+in *neither* source is a real typo.
 
 Fix every reported line (adjust the rule or drop it), then re-run until
 it prints `rules valid against live schema`. (`deny_kinds` and
@@ -145,16 +159,21 @@ Behavior probes through the proxy (`:3720`) - all must hold:
   (out-of-scope items filtered, not just hidden by luck)
 - `resources_create_or_update` with a Secret manifest (any namespace)
   -> -32000
+- `resources_create_or_update` with a plain manifest (e.g. a Pod) ->
+  upstream error `unknown tool ...` (the shipped `read_only = true`
+  removes the write tools from upstream; if this SUCCEEDS, read_only
+  was switched off - confirm that was deliberate)
 - direct to upstream `:8081`, same Secret list -> refused by upstream
   itself ("resource not allowed", the `denied_resources` backstop)
 
 Behavior probes are deliberately **non-invasive**: they only attempt
-operations that must be *blocked*, plus the upstream backstop check.
-Do NOT run adversarial data-exfiltration tests against customer
-clusters. The known chain (create an echo Pod in an allowed namespace
-mounting a Secret, read it back via `pods_log`) is a documented
-residual the policy cannot close - it belongs in repo-level e2e on a
-dev cluster only (README, "Workloads can still leak denied kinds").
+operations that must be *blocked*, plus the upstream backstop and
+`read_only` checks. Do NOT run adversarial data-exfiltration tests
+against customer clusters. The known chain (create an echo Pod in an
+allowed namespace mounting a Secret, read it back via `pods_log`) is
+only possible when upstream `read_only` is switched off - the shipped
+default closes it - and testing it belongs in repo-level e2e on a dev
+cluster only (README, "Workloads can still leak denied kinds").
 
 ## Rule grammar
 

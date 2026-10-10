@@ -37,6 +37,7 @@ jq -n --slurpfile R "$DIR/kubernetes-mcp-proxy.rules.json" --slurpfile L "$SNAPS
 grep -Eq '^port = "8081"$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: port"
 grep -Eq '^bind_address = "127.0.0.1"$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: bind_address must be loopback"
 grep -Eq '^list_output = "yaml"$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: list_output must be yaml (response filter depends on it)"
+grep -Eq '^read_only = true$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: read_only must be true (safe-by-default example; relax only deliberately)"
 
 # upstream backstop: the TOML must deny the core secret kinds itself
 grep -Eq '^kind = "Secret"$' "$DIR/kubernetes-mcp-server.toml" || fail "toml: denied_resources must include Secret"

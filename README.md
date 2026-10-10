@@ -17,6 +17,13 @@ A policy proxy in front of
   *filtered* - out-of-scope items are removed before the client sees them.
 - **Escape hatches closed**: `pods_exec`, `pods_run`, `configuration_view`
   (kubeconfig exposure) and `nodes_log` are denied outright.
+- **Read-only by default**: the shipped upstream config runs
+  `read_only = true` - every create/update/delete is refused at the
+  source, which also closes the workload ferret chain (a Pod mounting a
+  Secret and printing it via `pods_log`, see
+  [ADVERSARIAL-TESTS.md](ADVERSARIAL-TESTS.md)). Safe-by-default
+  example: comment the line out only if the client legitimately needs
+  writes.
 
 Everything runs on loopback. The proxy is not authentication - it is a
 policy gate for a single-user machine: any local process can reach it,
@@ -36,7 +43,7 @@ kubernetes-mcp-proxy  (node, zero-dep, one file)
             tables - so cluster-wide lookups only return allowed parts
         |  http://127.0.0.1:8081/mcp
         v
-kubernetes-mcp-server (HTTP mode, loopback, list_output = "yaml")
+kubernetes-mcp-server (HTTP mode, loopback, read_only, list_output = "yaml")
         |
         v
    your cluster (kubeconfig)
@@ -55,8 +62,8 @@ removed; a single out-of-scope object (`resources_get`) becomes the same
 | `kubernetes-mcp-proxy.mjs` | the proxy (node >= 18, zero deps) |
 | `kubernetes-mcp-proxy.sh` | `up` / `down` / `status` for both processes |
 | `kubernetes-mcp-proxy.rules.json` | the policy (see below) |
-| `kubernetes-mcp-server.toml` | hardened upstream config (loopback, `list_output = "yaml"`, `denied_resources` backstop for the deny_kinds kinds) |
-| `tools-list@v0.0.67.json` | normalized snapshot of upstream tools (drift marker) |
+| `kubernetes-mcp-server.toml` | hardened upstream config (loopback, `read_only = true`, `list_output = "yaml"`, `denied_resources` backstop for the deny_kinds kinds) |
+| `tools-list@v0.0.67.json` | normalized snapshot of upstream tools (full tag inventory, drift marker; capture with `read_only` off) |
 | `tests/validate.sh` | offline: syntax + rules-vs-snapshot |
 | `tests/e2e.sh` | offline: full policy behavior against a stub upstream |
 | `skills/kubernetes-mcp-proxy-rules/` | AI-assisted install/refresh workflow (skill: live-schema check + validated install) |
@@ -96,6 +103,11 @@ its `network.open_port` setting), Firejail, or bubblewrap:
 ```json
 { "network": { "open_port": [3720] } }
 ```
+
+With the shipped `read_only = true` default the one leak chain a
+sandboxed client could still drive *through* the proxy (create a Pod
+mounting a Secret, read it back via `pods_log`) is closed at the
+source too - what remains reachable behind port `3720` is reads.
 
 ## The rules file
 
@@ -143,9 +155,9 @@ typically want on top of a hosted/shared MCP):
 - `deny_calls` for conditional rules, e.g.
   `{"tool": "pods_delete", "if": {"namespace": "default"}, "reason": "deletes are platform-team only"}`
 - narrow `allowed_namespaces` to one namespace (`[]` denies every namespace)
-- set `read_only = true` in the upstream TOML: every write is refused
-  at the source, policy or not (`disable_destructive = true` keeps
-  reads but blocks delete/update)
+- if you commented out `read_only` and do need writes,
+  `disable_destructive = true` in the upstream TOML is the middle
+  setting (non-destructive writes stay, delete/update are blocked)
 
 ## Security notes
 
@@ -154,16 +166,17 @@ with repro commands): [ADVERSARIAL-TESTS.md](ADVERSARIAL-TESTS.md).
 
 - **Loopback only, no auth**: any local process can talk to `:3720` /
   `:8081`. Fine on a single-user machine, not on a multi-tenant host.
-- **Workloads can still leak denied kinds** (verified on a dev
-  cluster): a Pod in an allowed namespace can mount a Secret
-  (`envFrom`/`secretKeyRef` - creating it needs no `get` on the
-  Secret; the kubelet fetches it) and print it via `pods_log`. No
-  deny rule fires because no denied object is ever touched through
-  the MCP. The ceiling is upstream `read_only = true` (refuses the
-  write that starts the chain) or cluster admission policy
-  restricting secret volumes; RBAC on the kubeconfig alone does not
-  close this chain. The proxy narrows the MCP surface, it does not
-  replace the Kubernetes authorizer.
+- **Workloads can still leak denied kinds - when writes are enabled**
+  (verified on a dev cluster with `read_only` off): a Pod in an allowed
+  namespace can mount a Secret (`envFrom`/`secretKeyRef` - creating it
+  needs no `get` on the Secret; the kubelet fetches it) and print it
+  via `pods_log`. No deny rule fires because no denied object is ever
+  touched through the MCP. The shipped example closes this chain with
+  upstream `read_only = true` (the write that starts it is refused at
+  the source). If you enable writes, the remaining ceiling is cluster
+  admission policy restricting secret volumes - RBAC on the kubeconfig
+  alone does not close this chain. The proxy narrows the MCP surface,
+  it does not replace the Kubernetes authorizer.
 - **`pods_log` can print secret material** that a workload has mounted;
   it is not denied by default because it is the main debugging tool.
   Add it to `deny_tools` if that trade-off is not yours to make.
@@ -240,7 +253,10 @@ re-synchronized. Process:
    `initialize` and `tools/list` still pass through.
 3. **Capture the new schema through the locked proxy**: initialize
    (grab `Mcp-Session-Id`), then `tools/list`, extract the `data:`
-   frames, normalize (jq one-liner in AGENTS.md).
+   frames, normalize (jq one-liner in AGENTS.md). Comment out
+   `read_only` for the capture (the shipped config hides the write
+   tools; the snapshot must be the tag's full inventory - validate.sh
+   needs the rules' `deny_tools` there) and restore it right after.
 4. **Diff against the committed snapshot** (`tools-list@<old-tag>.json`)
    and review - this is the human review step:
    - **New tools**: any escape hatches (exec/run/log/port-forward
@@ -275,6 +291,9 @@ production:
    - `resources_list` with `kind: Secret` -> `-32000`
    - `pods_list {}` -> only allowed namespaces in the YAML
    - `resources_create_or_update` with a Secret manifest -> `-32000`
+   - `resources_create_or_update` with any other manifest (e.g. a
+     Pod) -> upstream `unknown tool ...` (`read_only = true` removes
+     the write tools)
    - direct `:8081` Secret list -> refused by upstream
      (`denied_resources` backstop)
 3. Watch `/tmp/kubernetes-mcp-proxy.log` while developers use
