@@ -161,10 +161,14 @@ typically want on top of a hosted/shared MCP):
   carries only its kind and name (values never appear), and the event's
   own namespace is still filtered. Name-only disclosure; add `events_list`
   to `deny_tools` if even that is too much.
-- **Deny rules fail open on drift** (argument level): if upstream renames
-  a tool, a `deny_tools` entry silently stops matching. Run
-  `tests/validate.sh` (rules vs committed `tools-list@<version>.json`)
-  after any upstream bump, and refresh the snapshot (procedure in AGENTS.md).
+- **Rule typos fail open at call time**: the schema lock compares
+  version *strings*, not tool schemas - a `deny_tools`/`deny_calls`
+  entry that names a tool or argument the pinned tag does not have
+  (typo, hand-edit, custom build reporting an unchanged version)
+  matches nothing and therefore blocks nothing. `tests/validate.sh`
+  catches this offline by cross-checking the rules against the
+  committed `tools-list@<version>.json` snapshot; refresh the snapshot
+  whenever the pinned tag changes (procedure in AGENTS.md).
 - **Version drift locks the proxy**: the rules `schema` tag is checked
   against the live upstream version at startup. A Renovate-style bump of
   the binary without refreshing rules+snapshot locks every `tools/call`
