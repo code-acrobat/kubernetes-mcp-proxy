@@ -35,7 +35,9 @@ workloads* is outside its reach. This chain was executed end to end;
    `envFrom: secretRef: postgres-postgresql` - allowed: `Pod` is not a
    denied kind, `default` is an allowed namespace. Creating a pod that
    mounts a Secret needs **no `get` permission on the Secret**; the
-   kubelet fetches it.
+   kubelet fetches it. (Mounts are namespace-local: the chain can only
+   reach secrets in the pod's own - i.e. an allowed - namespace, which
+   bounds the residual to `allowed_namespaces`.)
 2. `pods_log` that pod - returns the secret value verbatim:
    `postgres-password=devpass`.
 
