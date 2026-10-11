@@ -1,7 +1,9 @@
 # AGENTS.md - development notes
 
-User-facing docs: README.md. This file is the invariant record for anyone
-changing the code.
+User-facing docs: README.md. Security scope, in/out-of-scope findings,
+and the severity rubric for reports: THREAT-MODEL.md (external
+reviews - e.g. the OSS Scanner enrollment - grade against that file).
+This file is the invariant record for anyone changing the code.
 
 ## Invariants (do not break without discussion)
 
@@ -156,7 +158,8 @@ rules' `deny_tools` entries to be present in the snapshot); restore
   list/get/exec/configuration_view are -32000. Adversarial results
   (blocked-path matrix + the verified workload ferret chain) are
   recorded in `ADVERSARIAL-TESTS.md`; re-run the ferret section on dev
-  clusters only.
+  clusters only. Judge any security report against THREAT-MODEL.md
+  (in-scope findings vs by-design out-of-scope).
 
 ## Layout / repo rules
 

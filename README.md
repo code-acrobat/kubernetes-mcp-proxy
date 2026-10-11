@@ -64,6 +64,8 @@ removed; a single out-of-scope object (`resources_get`) becomes the same
 | `kubernetes-mcp-proxy.rules.json` | the policy (see below) |
 | `kubernetes-mcp-server.toml` | hardened upstream config (loopback, `read_only = true`, `list_output = "yaml"`, `denied_resources` backstop for the deny_kinds kinds) |
 | `tools-list@v0.0.67.json` | normalized snapshot of upstream tools (full tag inventory, drift marker; capture with `read_only` off) |
+| `THREAT-MODEL.md` | assets, adversaries, in/out of scope, severity rubric for security reports |
+| `.oss-scanner/Dockerfile` | offline build/test image for external scanners (OSS Scanner convention) |
 | `tests/validate.sh` | offline: syntax + rules-vs-snapshot |
 | `tests/e2e.sh` | offline: full policy behavior against a stub upstream |
 | `skills/kubernetes-mcp-proxy-rules/` | **recommended install path**: AI-assisted install/refresh workflow (policy discussion, live-schema validation, install + probes) |
@@ -188,6 +190,8 @@ typically want on top of a hosted/shared MCP):
 
 Evidence for these claims (blocked paths + the one verified residual,
 with repro commands): [ADVERSARIAL-TESTS.md](ADVERSARIAL-TESTS.md).
+Scope, adversaries, and how security reports are judged (severity
+rubric for external review): [THREAT-MODEL.md](THREAT-MODEL.md).
 
 - **Loopback only, no auth**: any local process can talk to `:3720` /
   `:8081`. Fine on a single-user machine, not on a multi-tenant host.
