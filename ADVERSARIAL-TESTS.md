@@ -48,7 +48,11 @@ workloads* is outside its reach. This chain was executed end to end;
 ### Reproduce (dev cluster, ~1 minute)
 
 ```sh
-# 0. a Secret must exist in an allowed namespace (here: helm postgres chart in default)
+# 0. a Secret with a known value must exist in an allowed namespace.
+#    Bootstrap on any dev cluster (~1 min, pinned chart for reproducibility):
+helm install postgres oci://registry-1.docker.io/bitnamicharts/postgresql \
+  --version 18.12.4 --set auth.postgresPassword=devpass \
+  --set primary.persistence.size=1Gi
 kubectl get secret postgres-postgresql -n default -o jsonpath='{.data}'
 # -> {"postgres-password":"ZGV2cGFzcw=="}   (devpass)
 
