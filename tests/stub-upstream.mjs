@@ -63,10 +63,14 @@ const EVENTS_YAML = `# The following events (YAML format) were found:
   Type: Normal
 `;
 
+// The go-sdk echoes numeric ids through int64 truncation (1.5 -> 1) -
+// mimic it so e2e can catch id-normalization mismatches in the proxy
+// (audit 2026-10-11 finding 1).
+const echoId = (id) => (typeof id === "number" ? Math.trunc(id) : id);
 const text = (id, t, extra = {}) =>
   `event: message\ndata: ${JSON.stringify({
     jsonrpc: "2.0",
-    id,
+    id: echoId(id),
     result: { content: [{ type: "text", text: t }], ...extra },
   })}\n\n`;
 
@@ -164,7 +168,7 @@ http
         res.end(
           `event: message\ndata: ${JSON.stringify({
             jsonrpc: "2.0",
-            id: msg.id,
+            id: echoId(msg.id),
             result: {
               tools: Object.keys(results).map((name) => ({
                 name,

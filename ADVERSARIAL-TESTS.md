@@ -104,6 +104,39 @@ Same stack, **2026-10-10**, after flipping the shipped TOML to
   pod needs no `get` on the Secret); denying `pods_log` (only hides the
   readback - an echo pod can exfiltrate out-of-band, e.g. `curl`).
 
+## Independent audit (2026-10-11)
+
+A fresh-context adversarial review - no knowledge of the implementation
+intent, graded against [THREAT-MODEL.md](THREAT-MODEL.md) - found four
+in-scope issues. All were fixed the same day; each has an e2e
+regression test (`tests/e2e.sh`, "audit fixes" block), and the stub
+upstream now truncates numeric ids like the go-sdk (it used to echo
+verbatim, which is why the first bug was invisible to e2e):
+
+| sev | finding | fix |
+|-----|---------|-----|
+| High | **JSON-RPC id coercion bypass**: the go-sdk echoes numeric ids through int64 truncation (1.5 -> 1); the proxy matched response frames with strict `===`, missed its own frame, and re-emitted it unfiltered - out-of-scope data delivered | numeric ids compared with truncation; any foreign response-shaped frame fails the call closed (-32000); object-shaped request ids refused |
+| High | **YAML kind-decoration evasion**: `kind: Secret # comment` (or anchor/tag) did not match the sniffer regex - kind "undeterminable" was forwarded, while the upstream parses the manifest fine | undeterminable kind is refused, never forwarded |
+| High | **Multi-document evasion**: only the first `---`-separated document was sniffed; the upstream applies every document (hidden denied kinds / out-of-scope-namespace writes) | manifests split like the upstream; every document sniffed |
+| Med | **Namespace depth bug**: a deeper `namespace:` key (e.g. `metadata.labels.namespace`) was read as the object's namespace | `metadata.namespace` accepted only as a direct child of the metadata block |
+
+Severity note: the table grades the **code** against the rubric
+(working repro = High). Effective severity on the shipped stack is
+lower for three of the four: the default `read_only = true` removes
+the write tool entirely (findings 2-4 are unreachable), and with
+writes enabled the upstream `denied_resources` backstop still refuses
+denied kinds - so only the out-of-scope-namespace variants (a
+kube-system document in a multi-doc apply, the namespace-label decoy)
+fully land, and only in that relaxed config: integrity of namespace
+scoping, not secret disclosure. Finding 1 is the exception that earns
+its High: no write, no exotic manifest, default config - one odd
+request id silently switched off response filtering for that call.
+None of the YAML constructions are reachable by accident (helm,
+kustomize, and well-behaved clients never emit a decorated `kind:` or
+a hidden second document); they matter because the threat model's
+adversary is a prompt-injected agent relaying a crafted string it was
+handed - for that adversary, esoteric encodings cost nothing.
+
 ## Scope of this document
 
 - Blocked-path probes are non-invasive and safe to re-run anywhere.

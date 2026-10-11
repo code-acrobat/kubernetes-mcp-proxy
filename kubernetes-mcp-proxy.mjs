@@ -105,21 +105,43 @@ log(lockReason ? `schema LOCKED: ${lockReason}` : `schema ok: upstream matches r
 
 // --- request-side policy ---
 function sniffManifest(s) {
-  // returns {kind, namespace} | null when unparseable (fail closed at caller).
+  // returns [{kind, namespace}] (one entry per YAML document) | null when
+  // unparseable (fail closed at caller).
   if (s.trim().startsWith("{")) {
     try {
       const o = JSON.parse(s);
-      return { kind: o?.kind, namespace: o?.metadata?.namespace };
+      return [{ kind: o?.kind, namespace: o?.metadata?.namespace }];
     } catch {
       return null;
     }
   }
-  const kind = /^kind:\s*["']?([^"'#\s]+)["']?\s*$/m.exec(s)?.[1];
-  // Only look for namespace INSIDE the top-level metadata block: dedented
-  // lines (e.g. subjects[].namespace in a RoleBinding) must not count.
-  const meta = /^metadata:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m.exec(s)?.[1] ?? "";
-  const namespace = /^[ \t]+namespace:\s*["']?([^"'#\s]+)["']?\s*$/m.exec(meta)?.[1];
-  return { kind, namespace };
+  // YAML: the upstream splits on \r?\n---\r?\n and applies EVERY document -
+  // each one is sniffed, never just the first (multi-doc evasion, audit
+  // 2026-10-11 #3).
+  const docs = s.split(/\r?\n---\r?\n/);
+  const out = [];
+  for (const doc of docs) {
+    // An undecorated top-level `kind:` line only; comment/anchor/tag
+    // decoration leaves kind undefined and the caller refuses the manifest
+    // (undeterminable kind must never be forwarded, audit #2).
+    const kind = /^kind:\s*["']?([^"'#\s]+)["']?\s*$/m.exec(doc)?.[1];
+    // Namespace only as a DIRECT child of the top-level metadata block:
+    // dedented lines (subjects[].namespace in a RoleBinding) and deeper
+    // keys (a label literally named "namespace") must not count (audit #4).
+    let namespace;
+    const meta = /^metadata:[^\n]*\n((?:[ \t]+[^\n]*\n?)*)/m.exec(doc)?.[1] ?? "";
+    const metaLines = meta.split("\n").filter((l) => l.trim() !== "");
+    if (metaLines.length) {
+      const childIndent = /^[ \t]*/.exec(metaLines[0])[0].length;
+      const nsLine = metaLines.find((l) => {
+        const m = /^([ \t]+)namespace:/.exec(l);
+        return m && m[1].length === childIndent;
+      });
+      if (nsLine) namespace = /^[ \t]+namespace:\s*["']?([^"'#\s]+)["']?\s*$/m.exec(nsLine)?.[1];
+    }
+    out.push({ kind, namespace });
+  }
+  return out;
 }
 
 function blockedRequest(msg) {
@@ -137,14 +159,18 @@ function blockedRequest(msg) {
     return `kind ${args.kind} is denied by policy`;
   if (typeof args.resource === "string") {
     // resources_create_or_update: the full manifest is the payload - sniff kind
-    // and namespace out of it (JSON parsed exactly, YAML line-based).
-    const sniff = sniffManifest(args.resource);
-    if (!sniff) return "resource manifest is not parseable; refusing to forward";
-    if (sniff.kind && denyKinds.has(sniff.kind))
-      return `kind ${sniff.kind} is denied by policy`;
-    if (!sniff.namespace) return "resource manifest must declare metadata.namespace";
-    if (allowedNs && !allowedNs.has(sniff.namespace))
-      return `namespace ${sniff.namespace} is not allowed`;
+    // and namespace out of every document (JSON parsed exactly, YAML
+    // line-based). Anything undeterminable is refused, never forwarded.
+    const docs = sniffManifest(args.resource);
+    if (!docs) return "resource manifest is not parseable; refusing to forward";
+    for (const d of docs) {
+      if (!d.kind)
+        return "resource manifest does not declare a verifiable top-level kind; refusing to forward";
+      if (denyKinds.has(d.kind)) return `kind ${d.kind} is denied by policy`;
+      if (!d.namespace) return "resource manifest must declare metadata.namespace";
+      if (allowedNs && !allowedNs.has(d.namespace))
+        return `namespace ${d.namespace} is not allowed`;
+    }
   }
   if (args.namespace !== undefined && allowedNs && !allowedNs.has(String(args.namespace)))
     return `namespace ${args.namespace} is not allowed`;
@@ -296,6 +322,26 @@ function filterCallResult(obj) {
   return { obj, dropped };
 }
 
+// The go-sdk echoes numeric ids through int64 truncation (1.5 -> 1); a
+// strict === would miss our own response frame and re-emit it unfiltered
+// (audit 2026-10-11 #1). Compare truncated; any response-shaped frame that
+// is not ours fails the call closed instead of being re-emitted.
+function sameId(a, b) {
+  if (a === b) return true;
+  return typeof a === "number" && typeof b === "number" && Math.trunc(a) === Math.trunc(b);
+}
+const isRespFrame = (o) => o && typeof o === "object" && (o.result !== undefined || o.error !== undefined);
+function idMismatchError(name, gotId, reqId) {
+  log(
+    `blocked ${name} response: upstream answered with id ${JSON.stringify(gotId)} for request id ${JSON.stringify(reqId)}; refusing to forward unfiltered`
+  );
+  return JSON.stringify({
+    jsonrpc: "2.0",
+    id: reqId,
+    error: { code: -32000, message: "blocked by kubernetes-mcp-proxy policy: upstream response id mismatch" },
+  });
+}
+
 function filterResponse(raw, reqId, name) {
   if (raw.includes("\ndata: ") || raw.startsWith("data: ")) {
     // SSE: rewrite only the frame matching our request id, re-emit the rest.
@@ -314,7 +360,8 @@ function filterResponse(raw, reqId, name) {
         out.push(part);
         continue;
       }
-      if (obj && obj.id === reqId) {
+      if (isRespFrame(obj)) {
+        if (!sameId(obj.id, reqId)) return idMismatchError(name, obj.id, reqId);
         const f = filterCallResult(obj);
         if (f.blocked) {
           log(`blocked ${name} response: ${f.blocked}`);
@@ -336,7 +383,8 @@ function filterResponse(raw, reqId, name) {
   }
   try {
     const obj = JSON.parse(raw);
-    if (obj && obj.id === reqId) {
+    if (isRespFrame(obj)) {
+      if (!sameId(obj.id, reqId)) return idMismatchError(name, obj.id, reqId);
       const f = filterCallResult(obj);
       if (f.blocked)
         return JSON.stringify({
@@ -379,8 +427,12 @@ function handle(req, res, body) {
     if (parsed.method === "tools/call") {
       reqId = parsed.id ?? null;
       toolsName = parsed.params?.name;
-      blockReason = lockReason ?? blockedRequest(parsed);
-      shouldFilter = blockReason === null;
+      if (reqId !== null && typeof reqId === "object")
+        blockReason = "unsupported tools/call request id (must be a string or a number)";
+      else {
+        blockReason = lockReason ?? blockedRequest(parsed);
+        shouldFilter = blockReason === null;
+      }
     }
   }
   if (blockReason) {

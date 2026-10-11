@@ -115,6 +115,31 @@ jq -r '.error.message' "$TMP/data-15" | grep -q 'e2e deny_calls' || fail "deny_c
 [ ! -s "$STUB_LOG" ] || fail "blocked calls leaked to upstream: $(tr '\n' ' ' < "$STUB_LOG")"
 pass "request-side denials (exec/Secret/manifests/RBAC/ns/batch/deny_calls) never reached upstream"
 
+# --- audit fixes (independent review 2026-10-11): response id coercion +
+# create-manifest sniff evasions. The stub truncates numeric ids like the
+# go-sdk; evasive manifests must be refused, never forwarded.
+: > "$STUB_LOG"
+call 16 '{"jsonrpc":"2.0","id":16.5,"method":"tools/call","params":{"name":"pods_list","arguments":{}}}'
+txt 16 | grep -q 'coredns-abc' && fail "fractional id: kube-system pod leaked (unfiltered frame)"
+txt 16 | grep -q 'app-in-default' || fail "fractional id: default pod missing"
+pass "fractional request id (go-sdk int64 truncation) still filtered"
+call 17 '{"jsonrpc":"2.0","id":{"x":1},"method":"tools/call","params":{"name":"pods_list","arguments":{}}}'
+jq -e '.error.code == -32000' "$TMP/data-17" >/dev/null || fail "object-shaped request id not refused"
+pass "object-shaped request id refused"
+call 18 '{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"resources_create_or_update","arguments":{"resource":"apiVersion: v1\nkind: Secret # decoy\nmetadata:\n  name: s\n  namespace: default\n"}}}'
+jq -e '.error.code == -32000' "$TMP/data-18" >/dev/null || fail "kind with trailing comment not refused"
+call 19 '{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"resources_create_or_update","arguments":{"resource":"apiVersion: v1\nkind: Pod\nmetadata:\n  name: decoy\n  namespace: default\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: default\nstringData:\n  password: leakme\n"}}}'
+jq -e '.error.code == -32000' "$TMP/data-19" >/dev/null || fail "multi-doc hidden Secret not refused"
+call 20 '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"resources_create_or_update","arguments":{"resource":"apiVersion: v1\nkind: Pod\nmetadata:\n  name: decoy\n  namespace: default\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: evil\n  namespace: kube-system\n"}}}'
+jq -e '.error.code == -32000' "$TMP/data-20" >/dev/null || fail "multi-doc kube-system doc not refused"
+call 21 '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"resources_create_or_update","arguments":{"resource":"apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\n  labels:\n    namespace: default\n"}}}'
+jq -e '.error.code == -32000' "$TMP/data-21" >/dev/null || fail "labels.namespace decoy not refused"
+jq -r '.error.message' "$TMP/data-21" | grep -q 'metadata.namespace' || fail "labels.namespace decoy: wrong refusal reason"
+# call 16 (allowed pods_list) is the only one that may reach upstream;
+# calls 17-21 must all be refused request-side.
+[ "$(cat "$STUB_LOG")" = "pods_list" ] || fail "audit-fix block: unexpected upstream traffic: $(tr '\n' ' ' < "$STUB_LOG")"
+pass "audit fixes: id coercion + sniff evasions covered"
+
 # --- browser guard ---
 code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:1720/mcp \
   -H "$B" -H "$A" -H 'origin: https://evil.example' -d '{}')

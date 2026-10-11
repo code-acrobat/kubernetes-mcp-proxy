@@ -237,10 +237,14 @@ rubric for external review): [THREAT-MODEL.md](THREAT-MODEL.md).
   scoping exists only in the proxy - the ceiling for that is RBAC on
   the kubeconfig the upstream uses. Trial on a dev cluster first (next
   section).
-- **Create-manifest sniffing is line-based for YAML** (top-level `kind`,
-  `namespace` inside the first `metadata:` block). Exotic styles (flow
-  mappings) are refused rather than forwarded unverified. JSON manifests
-  are parsed exactly.
+- **Create-manifest sniffing is line-based for YAML** and fails closed:
+  every `---`-separated document is sniffed (the upstream applies each
+  one), each must carry a matchable top-level `kind:` line, and
+  `metadata.namespace` counts only as a direct child of the first
+  `metadata:` block. Flow mappings, decorated kind lines
+  (`kind: Secret # comment`), and undeterminable namespaces are
+  refused rather than forwarded unverified. JSON manifests are parsed
+  exactly.
 - **Upstream must run with `list_output = "yaml"`** (the shipped TOML):
   the response filter parses YAML item blocks; table output is only a
   fallback for `pods_top`/`nodes_top`.

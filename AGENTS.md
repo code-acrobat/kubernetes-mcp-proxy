@@ -20,6 +20,12 @@ This file is the invariant record for anyone changing the code.
   are parsed; only the frame whose `id` matches the request is rewritten,
   other frames (notifications) are re-emitted byte-identical. Upstream
   `isError` results pass unfiltered.
+- **Response frame matching is id-normalized, fail closed.** The go-sdk
+  echoes numeric ids through int64 truncation (1.5 => 1); the proxy
+  compares with the same truncation, and any response-shaped frame whose
+  id is not ours fails the call closed (-32000) instead of being
+  re-emitted unfiltered. Non-scalar request ids are refused
+  request-side.
 - **Text regeneration rule**: when structuredContent items were dropped,
   `content[0].text` is replaced by the pretty-printed filtered
   structuredContent (text must never contradict structured). Text-only
@@ -94,11 +100,15 @@ response items; omit for `*`, `[]` denies all).
 
 Create-manifest sniffing (`resources_create_or_update`, any `resource`
 string argument): JSON manifests are parsed exactly (`kind`,
-`metadata.namespace`). YAML manifests: first top-level `kind:` line;
-namespace taken only from inside the first top-level `metadata:` block
-(indented following lines) so `subjects[].namespace` in a RoleBinding
-cannot impersonate the object's namespace. Unparseable manifest =>
-refused (fail closed).
+`metadata.namespace`). YAML manifests are split on the upstream's
+`\r?\n---\r?\n` document separator and EVERY document is sniffed (the
+upstream applies each one); each must declare an undecorated top-level
+`kind:` line the sniffer can match (comment/anchor/tag decoration =>
+refused, never forwarded) and may take `metadata.namespace` only as a
+direct child of the first top-level `metadata:` block (dedented lines
+like `subjects[].namespace` in a RoleBinding, and deeper keys like a
+label literally named `namespace`, do not count). Unparseable or
+undeterminable manifest => refused (fail closed).
 
 ## tools-list snapshot / drift check
 
