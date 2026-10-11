@@ -146,6 +146,17 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:1720/mcp
 [ "$code" = 403 ] || fail "browser origin not rejected (got $code)"
 pass "browser request rejected 403"
 
+# --- unparseable non-empty body refused; empty GET keeps forwarding ---
+call 22 'this is not json at all'
+jq -e '.error.code == -32000' "$TMP/data-22" >/dev/null || fail "unparseable body not refused"
+jq -r '.error.message' "$TMP/data-22" | grep -q 'unparseable' || fail "unparseable refusal: wrong reason"
+pass "unparseable request body refused"
+# empty-body GET (SSE) must keep forwarding: the stub answers 202, not a -32000
+code=$(curl -sS -o "$TMP/get" -w '%{http_code}' -X GET http://127.0.0.1:1720/mcp -H "$A")
+[ "$code" != 403 ] || fail "empty GET rejected 403"
+jq -e '.error.code == -32000' "$TMP/get" >/dev/null 2>&1 && fail "empty GET refused"
+pass "empty-body GET still forwarded (got $code)"
+
 # --- schema lock: drifted upstream tag locks tools/call, inspection stays open ---
 STUB_LOG="$TMP/stub2-calls.log"; : > "$STUB_LOG"
 STUB_LOG="$STUB_LOG" STUB_VERSION=v9.9.9 STUB_PORT=18082 \

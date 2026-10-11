@@ -419,7 +419,9 @@ function handle(req, res, body) {
   let toolsName = null;
   let shouldFilter = false;
   let blockReason = null;
-  if (Array.isArray(parsed)) {
+  if (body.length && parsed === null)
+    blockReason = "unparseable request body";
+  else if (Array.isArray(parsed)) {
     const calls = parsed.filter((m) => m && m.method === "tools/call");
     if (calls.length)
       blockReason = `batch containing ${calls.length} tools/call request(s) is not allowed`;
@@ -436,7 +438,7 @@ function handle(req, res, body) {
     }
   }
   if (blockReason) {
-    log(`blocked ${toolsName ?? "batch"}: ${blockReason}`);
+    log(`blocked ${toolsName ?? (Array.isArray(parsed) ? "batch" : "request")}: ${blockReason}`);
     res.writeHead(200, { "content-type": "application/json" });
     res.end(
       JSON.stringify({

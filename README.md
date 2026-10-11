@@ -51,7 +51,9 @@ kubernetes-mcp-server (HTTP mode, loopback, read_only, list_output = "yaml")
 
 Blocked calls are answered locally with a JSON-RPC error
 (`code: -32000, "blocked by kubernetes-mcp-proxy policy: ..."`) and are
-never forwarded. Filtered responses come back with out-of-scope items
+never forwarded. A non-empty request body that is not valid JSON is
+refused the same way (the empty body of the SSE GET keeps forwarding).
+Filtered responses come back with out-of-scope items
 removed; a single out-of-scope object (`resources_get`) becomes the same
 `-32000` error.
 

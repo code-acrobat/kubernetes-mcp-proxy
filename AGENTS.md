@@ -8,11 +8,13 @@ This file is the invariant record for anyone changing the code.
 ## Invariants (do not break without discussion)
 
 - **Request flow** (buffer body -> browser guard -> parse -> policy ->
-  forward): Origin or Sec-Fetch-Site header => 403. Unparseable body =>
-  pass through. Batch with any tools/call => whole batch blocked (fail
-  closed; the go-sdk rejects batches on modern protocols anyway, and a
-  smuggled tools/call inside a batch must not slip past policy). Non-tools/call
-  methods (initialize, notifications, tools/list) => forwarded untouched.
+  forward): Origin or Sec-Fetch-Site header => 403. Unparseable non-empty
+  body => refused (-32000 "unparseable request body"; empty body, the
+  SSE GET, still forwards). Batch with any tools/call => whole batch
+  blocked (fail closed; the go-sdk rejects batches on modern protocols
+  anyway, and a smuggled tools/call inside a batch must not slip past
+  policy). Non-tools/call methods (initialize, notifications, tools/list)
+  => forwarded untouched.
 - **Blocked call => local 200 JSON-RPC error** `code:-32000,
   message:"blocked by kubernetes-mcp-proxy policy: <reason>"`, never
   forwarded (also true for post-filter single-object rejections).
